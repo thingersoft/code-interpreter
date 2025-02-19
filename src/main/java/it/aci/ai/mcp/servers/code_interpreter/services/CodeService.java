@@ -1,6 +1,7 @@
 package it.aci.ai.mcp.servers.code_interpreter.services;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -76,30 +77,30 @@ public class CodeService {
 
             // build run command
             List<Dependency> dependencies = Arrays.asList(request.dependencies());
-            String dependenciesCommand = "";
-            String command = switch (language) {
+            String command = "export PATH=\"$HOME/.local/bin:$PATH\" && ";
+            switch (language) {
                 case PYTHON:
-                    if (!dependencies.isEmpty()) {
-                        dependenciesCommand = "pip install ";
-                        dependenciesCommand += dependencies.stream()
-                                .map(dep -> dep.id() + (dep.version() != null ? dep.version() : ""))
-                                .reduce("", (partial, current) -> partial + " " + current);
-                        dependenciesCommand += "; ";
-                    }
-                    yield dependenciesCommand + "python " + SOURCE_FILENAME;
+                    command += "pip install pipreqs && ";
+                    command += "pipreqs . && ";
+                    command += "pip install -r requirements.txt && ";
+                    command += "python " + SOURCE_FILENAME;
+                    break;
                 case TYPESCRIPT:
                     if (!dependencies.isEmpty()) {
-                        dependenciesCommand = "npm install ";
-                        dependenciesCommand += dependencies.stream()
+                        command = "npm install ";
+                        command += dependencies.stream()
                                 .map(dep -> dep.id() + (dep.version() != null ? "@" + dep.version() : ""))
                                 .reduce("", (partial, current) -> partial + " " + current);
-                        dependenciesCommand += "; ";
+                        command += "&& ";
                     }
-                    yield dependenciesCommand + "node " + SOURCE_FILENAME;
+                    command += "node " + SOURCE_FILENAME;
+                    break;
                 case JAVA:
-                    yield "java " + SOURCE_FILENAME;
-            };
-            command = "cd " + INPUT_PATH + "; " + command;
+                    command += "java " + SOURCE_FILENAME;
+                    break;
+            }
+
+            command = "cd " + INPUT_PATH + " && " + command;
 
             // create I/O directories
             Files.createDirectories(Path.of(OUTPUT_PATH));
@@ -138,7 +139,7 @@ public class CodeService {
                     .withFollowStream(true)
                     .exec(new ResultCallback.Adapter<Frame>() {
                         public void onNext(Frame frame) {
-                            outputFrames.add(new String(frame.getPayload()));
+                            outputFrames.add(new String(frame.getPayload(), StandardCharsets.UTF_8));
                         };
                     })
                     .awaitCompletion();
@@ -150,7 +151,7 @@ public class CodeService {
                     .withFollowStream(true)
                     .exec(new ResultCallback.Adapter<Frame>() {
                         public void onNext(Frame frame) {
-                            errorFrames.add(new String(frame.getPayload()));
+                            errorFrames.add(new String(frame.getPayload(), StandardCharsets.UTF_8));
                         };
                     })
                     .awaitCompletion();
