@@ -7,14 +7,21 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import org.springframework.stereotype.Service;
 
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.CreateContainerResponse;
+import com.github.dockerjava.api.command.ExecCreateCmdResponse;
 import com.github.dockerjava.api.model.Bind;
+import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.PullResponseItem;
@@ -31,11 +38,17 @@ import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 @Service
 public class CodeService {
 
+    Logger LOG = LoggerFactory.getLogger(CodeService.class);
+
+    private static final String OUTPUT_PATH = "/output/";
+
     private DockerClient dockerClient;
+    private Map<Language, String> languageContainerIdMap = new HashMap<>();
 
     private final DockerConfig dockerConfig;
 
@@ -44,7 +57,7 @@ public class CodeService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException {
+    private void init() throws InterruptedException, IOException {
 
         // init docker client
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
@@ -55,14 +68,83 @@ public class CodeService {
                 .build();
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
 
-        // pull images for each supported language
+        // pull images and init containers for each supported language
         for (Language language : Language.values()) {
+
+            final String INPUT_PATH = getInputPath(language);
+
+            // create I/O directories
+            Files.createDirectories(Path.of(OUTPUT_PATH));
+            Files.createDirectories(Path.of(INPUT_PATH));
+
+            // pull image
             dockerClient
                     .pullImageCmd(language.getImage())
                     .exec(new ResultCallback.Adapter<PullResponseItem>())
                     .awaitCompletion();
+
+            // I/O volumes bindings
+            HostConfig hostConfig = new HostConfig();
+            Bind inputBind = new Bind("/c" + INPUT_PATH, new Volume(INPUT_PATH));
+            Bind outputBind = new Bind("/c" + OUTPUT_PATH, new Volume(OUTPUT_PATH));
+            hostConfig.setBinds(inputBind, outputBind);
+
+            // stop and remove container if already exists
+            List<Container> matchingContainers = dockerClient
+                    .listContainersCmd()
+                    .withNameFilter(List.of(getContainerName(language)))
+                    .exec();
+            for (Container container : matchingContainers) {
+                cleanContainer(container.getId());
+            }
+
+            // create container with prepair and never ending command
+            String prepareCommand = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
+            switch (language) {
+                case PYTHON:
+                    prepareCommand += "pip install pipreqs && ";
+                    break;
+                case TYPESCRIPT:
+                    break;
+                case JAVA:
+                    break;
+            }
+            CreateContainerResponse createContainerResponse = dockerClient
+                    .createContainerCmd(language.getImage())
+                    .withName(getContainerName(language))
+                    .withCmd("sh", "-c", prepareCommand + "while true; do sleep 1; done")
+                    .withHostConfig(hostConfig)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .exec();
+            String containerId = createContainerResponse.getId();
+
+            // populate language-container map
+            languageContainerIdMap.put(language, containerId);
+
+            // container start
+            dockerClient
+                    .startContainerCmd(containerId)
+                    .exec();
+
+            // log stdout and stderr
+            dockerClient
+                    .logContainerCmd(containerId)
+                    .withStdErr(true)
+                    .withStdOut(true)
+                    .withFollowStream(true)
+                    .exec(new LoggingResultCallback());
+
         }
 
+    }
+
+    @PreDestroy
+    private void clean() {
+        for (Language language : Language.values()) {
+            String containerId = languageContainerIdMap.get(language);
+            cleanContainer(containerId);
+        }
     }
 
     public ExecuteCodeResult executeCode(ExecuteCodeRequest request) {
@@ -71,28 +153,55 @@ public class CodeService {
 
         try {
 
-            String OUTPUT_PATH = "/output/";
-            String INPUT_PATH = "/input/" + language;
-            String SOURCE_FILENAME = "source" + language.getSourceFileExtension();
+            final String INPUT_PATH = getInputPath(language);
+            final String SOURCE_FILENAME = "source" + language.getSourceFileExtension();
+            String containerId = languageContainerIdMap.get(language);
 
-            // build run command
+            // write source code to input file
+            Files.writeString(Path.of(INPUT_PATH, SOURCE_FILENAME), request.code(), StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+
+            // build prepare command
             List<Dependency> dependencies = Arrays.asList(request.dependencies());
-            String command = "export PATH=\"$HOME/.local/bin:$PATH\" && ";
+            String prepareCommand = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\"";
             switch (language) {
                 case PYTHON:
-                    command += "pip install pipreqs && ";
-                    command += "pipreqs . && ";
-                    command += "pip install -r requirements.txt && ";
-                    command += "python " + SOURCE_FILENAME;
+                    prepareCommand += " && pipreqs --force .";
+                    prepareCommand += " && pip install -r requirements.txt";
                     break;
                 case TYPESCRIPT:
                     if (!dependencies.isEmpty()) {
-                        command = "npm install ";
-                        command += dependencies.stream()
+                        prepareCommand = "npm install ";
+                        prepareCommand += dependencies.stream()
                                 .map(dep -> dep.id() + (dep.version() != null ? "@" + dep.version() : ""))
                                 .reduce("", (partial, current) -> partial + " " + current);
-                        command += "&& ";
                     }
+                    break;
+                case JAVA:
+                    break;
+            }
+
+            // create prepare command
+            ExecCreateCmdResponse createPrepareCommandResponse = dockerClient
+                    .execCreateCmd(containerId)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .withCmd("sh", "-c", prepareCommand)
+                    .exec();
+
+            // run prepare command
+            dockerClient
+                    .execStartCmd(createPrepareCommandResponse.getId())
+                    .exec(new LoggingResultCallback())
+                    .awaitCompletion();
+
+            // build command
+            String command = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
+            switch (language) {
+                case PYTHON:
+                    command += "python " + SOURCE_FILENAME;
+                    break;
+                case TYPESCRIPT:
                     command += "node " + SOURCE_FILENAME;
                     break;
                 case JAVA:
@@ -100,59 +209,35 @@ public class CodeService {
                     break;
             }
 
-            command = "cd " + INPUT_PATH + " && " + command;
-
-            // create I/O directories
-            Files.createDirectories(Path.of(OUTPUT_PATH));
-            Files.createDirectories(Path.of(INPUT_PATH));
-
-            // write source code to input file
-            Files.writeString(Path.of(INPUT_PATH, SOURCE_FILENAME), request.code(), StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
-
-            // I/O volumes bindings
-            HostConfig hostConfig = new HostConfig();
-            Bind inputBind = new Bind("/c" + INPUT_PATH, new Volume(INPUT_PATH));
-            Bind outputBind = new Bind("/c" + OUTPUT_PATH, new Volume(OUTPUT_PATH));
-            hostConfig.setBinds(inputBind, outputBind);
-
-            // container creation
-            CreateContainerResponse createContainerResponse = dockerClient
-                    .createContainerCmd(language.getImage())
-                    .withCmd("/bin/bash", "-c", command)
-                    .withHostConfig(hostConfig)
+            // create command
+            ExecCreateCmdResponse createcommandResponse = dockerClient
+                    .execCreateCmd(containerId)
                     .withAttachStdout(true)
                     .withAttachStderr(true)
-                    .exec();
-            String containerId = createContainerResponse.getId();
-
-            // container start
-            dockerClient
-                    .startContainerCmd(containerId)
+                    .withCmd("sh", "-c", command)
                     .exec();
 
-            // follow stdout and stderr
+            // run command and collect output
             List<String> outputFrames = new ArrayList<>();
-            dockerClient
-                    .logContainerCmd(containerId)
-                    .withStdOut(true)
-                    .withFollowStream(true)
-                    .exec(new ResultCallback.Adapter<Frame>() {
-                        public void onNext(Frame frame) {
-                            outputFrames.add(new String(frame.getPayload(), StandardCharsets.UTF_8));
-                        };
-                    })
-                    .awaitCompletion();
-
             List<String> errorFrames = new ArrayList<>();
             dockerClient
-                    .logContainerCmd(containerId)
-                    .withStdErr(true)
-                    .withFollowStream(true)
+                    .execStartCmd(createcommandResponse.getId())
                     .exec(new ResultCallback.Adapter<Frame>() {
                         public void onNext(Frame frame) {
-                            errorFrames.add(new String(frame.getPayload(), StandardCharsets.UTF_8));
-                        };
+
+                            switch (frame.getStreamType()) {
+                                case STDOUT:
+                                    outputFrames.add(frameToString(frame));
+                                    break;
+                                case STDERR:
+                                    errorFrames.add(frameToString(frame));
+                                    break;
+                                default:
+                                    break;
+                            }
+
+                        }
+
                     })
                     .awaitCompletion();
 
@@ -162,6 +247,45 @@ public class CodeService {
             throw new RuntimeException(e);
         }
 
+    }
+
+    /**
+     * Callback to log container stdout and stderr
+     */
+    private class LoggingResultCallback extends ResultCallback.Adapter<Frame> {
+
+        @Override
+        public void onNext(Frame frame) {
+
+            Level logLevel = switch (frame.getStreamType()) {
+                case STDOUT:
+                case RAW:
+                    yield Level.INFO;
+                case STDERR:
+                    yield Level.ERROR;
+                default:
+                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
+            };
+            LOG.atLevel(logLevel).log(frameToString(frame));
+        }
+
+    }
+
+    private String getInputPath(Language language) {
+        return "/input/" + language;
+    }
+
+    private String getContainerName(Language language) {
+        return "code_interpreter_sandbox___" + language.name().toLowerCase();
+    }
+
+    private String frameToString(Frame frame) {
+        return new String(frame.getPayload(), StandardCharsets.UTF_8);
+    };
+
+    private void cleanContainer(String containerId) {
+        dockerClient.stopContainerCmd(containerId).exec();
+        dockerClient.removeContainerCmd(containerId).exec();
     }
 
 }
