@@ -10,6 +10,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ForkJoinPool;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,83 +71,87 @@ public class CodeService {
                 .build();
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
 
-        // pull images and init containers for each supported language
-        for (Language language : Language.values()) {
-
+        // pull images and init containers for each supported language in parallel
+        parallellyExecuteForEachLanguage(language -> {
             final String INPUT_PATH = getInputPath(language);
 
-            // create I/O directories
-            Files.createDirectories(Path.of(OUTPUT_PATH));
-            Files.createDirectories(Path.of(INPUT_PATH));
+            try {
 
-            // pull image
-            dockerClient
-                    .pullImageCmd(language.getImage())
-                    .exec(new ResultCallback.Adapter<PullResponseItem>())
-                    .awaitCompletion();
+                // create I/O directories
+                Files.createDirectories(Path.of(OUTPUT_PATH));
+                Files.createDirectories(Path.of(INPUT_PATH));
 
-            // I/O volumes bindings
-            HostConfig hostConfig = new HostConfig();
-            Bind inputBind = new Bind("/c" + INPUT_PATH, new Volume(INPUT_PATH));
-            Bind outputBind = new Bind("/c" + OUTPUT_PATH, new Volume(OUTPUT_PATH));
-            hostConfig.setBinds(inputBind, outputBind);
+                // pull image
+                dockerClient
+                        .pullImageCmd(language.getImage())
+                        .exec(new ResultCallback.Adapter<PullResponseItem>())
+                        .awaitCompletion();
 
-            // stop and remove container if already exists
-            List<Container> matchingContainers = dockerClient
-                    .listContainersCmd()
-                    .withNameFilter(List.of(getContainerName(language)))
-                    .exec();
-            for (Container container : matchingContainers) {
-                cleanContainer(container.getId());
+                // I/O volumes bindings
+                HostConfig hostConfig = new HostConfig();
+                Bind inputBind = new Bind("/c" + INPUT_PATH, new Volume(INPUT_PATH));
+                Bind outputBind = new Bind("/c" + OUTPUT_PATH, new Volume(OUTPUT_PATH));
+                hostConfig.setBinds(inputBind, outputBind);
+
+                // stop and remove container if already exists
+                List<Container> matchingContainers = dockerClient
+                        .listContainersCmd()
+                        .withNameFilter(List.of(getContainerName(language)))
+                        .exec();
+                for (Container container : matchingContainers) {
+                    cleanContainer(container.getId());
+                }
+
+                // create container with prepair and never ending command
+                String prepareCommand = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
+                switch (language) {
+                    case PYTHON:
+                        prepareCommand += "pip install pipreqs && ";
+                        break;
+                    case TYPESCRIPT:
+                        break;
+                    case JAVA:
+                        break;
+                }
+                CreateContainerResponse createContainerResponse = dockerClient
+                        .createContainerCmd(language.getImage())
+                        .withName(getContainerName(language))
+                        .withCmd("sh", "-c", prepareCommand + "while true; do sleep 1; done")
+                        .withHostConfig(hostConfig)
+                        .withAttachStdout(true)
+                        .withAttachStderr(true)
+                        .exec();
+                String containerId = createContainerResponse.getId();
+
+                // populate language-container map
+                languageContainerIdMap.put(language, containerId);
+
+                // container start
+                dockerClient
+                        .startContainerCmd(containerId)
+                        .exec();
+
+                // log stdout and stderr
+                dockerClient
+                        .logContainerCmd(containerId)
+                        .withStdErr(true)
+                        .withStdOut(true)
+                        .withFollowStream(true)
+                        .exec(new LoggingResultCallback());
+
+            } catch (InterruptedException | IOException e) {
+                throw new RuntimeException(e);
             }
-
-            // create container with prepair and never ending command
-            String prepareCommand = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
-            switch (language) {
-                case PYTHON:
-                    prepareCommand += "pip install pipreqs && ";
-                    break;
-                case TYPESCRIPT:
-                    break;
-                case JAVA:
-                    break;
-            }
-            CreateContainerResponse createContainerResponse = dockerClient
-                    .createContainerCmd(language.getImage())
-                    .withName(getContainerName(language))
-                    .withCmd("sh", "-c", prepareCommand + "while true; do sleep 1; done")
-                    .withHostConfig(hostConfig)
-                    .withAttachStdout(true)
-                    .withAttachStderr(true)
-                    .exec();
-            String containerId = createContainerResponse.getId();
-
-            // populate language-container map
-            languageContainerIdMap.put(language, containerId);
-
-            // container start
-            dockerClient
-                    .startContainerCmd(containerId)
-                    .exec();
-
-            // log stdout and stderr
-            dockerClient
-                    .logContainerCmd(containerId)
-                    .withStdErr(true)
-                    .withStdOut(true)
-                    .withFollowStream(true)
-                    .exec(new LoggingResultCallback());
-
-        }
+        });
 
     }
 
     @PreDestroy
     private void clean() {
-        for (Language language : Language.values()) {
+        parallellyExecuteForEachLanguage(language -> {
             String containerId = languageContainerIdMap.get(language);
             cleanContainer(containerId);
-        }
+        });
     }
 
     public ExecuteCodeResult executeCode(ExecuteCodeRequest request) {
@@ -269,6 +276,20 @@ public class CodeService {
             LOG.atLevel(logLevel).log(frameToString(frame));
         }
 
+    }
+
+    private void parallellyExecuteForEachLanguage(Consumer<Language> consumer) {
+        List<Language> languages = Arrays.asList(Language.values());
+        ForkJoinPool threadPool = new ForkJoinPool(languages.size());
+        try {
+            threadPool.submit(() -> {
+                languages.parallelStream().forEach(consumer);
+            }).get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        } finally {
+            threadPool.shutdown();
+        }
     }
 
     private String getInputPath(Language language) {
