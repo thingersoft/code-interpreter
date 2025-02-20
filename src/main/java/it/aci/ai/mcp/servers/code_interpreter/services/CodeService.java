@@ -96,6 +96,7 @@ public class CodeService {
                 // stop and remove container if already exists
                 List<Container> matchingContainers = dockerClient
                         .listContainersCmd()
+                        .withShowAll(true)
                         .withNameFilter(List.of(getContainerName(language)))
                         .exec();
                 for (Container container : matchingContainers) {
@@ -305,7 +306,15 @@ public class CodeService {
     };
 
     private void cleanContainer(String containerId) {
-        dockerClient.stopContainerCmd(containerId).exec();
+        Container container = dockerClient
+                .listContainersCmd()
+                .withShowAll(true)
+                .withIdFilter(List.of(containerId))
+                .exec()
+                .get(0);
+        if (container.getState().equalsIgnoreCase("running")) {
+            dockerClient.stopContainerCmd(containerId).exec();
+        }
         dockerClient.removeContainerCmd(containerId).exec();
     }
 
