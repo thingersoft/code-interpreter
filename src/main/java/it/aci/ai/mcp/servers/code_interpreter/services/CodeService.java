@@ -23,18 +23,16 @@ import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
-import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.Frame;
-import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.PullResponseItem;
-import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.DockerHttpClient;
 
+import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
 import it.aci.ai.mcp.servers.code_interpreter.config.DockerConfig;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
@@ -46,17 +44,27 @@ import jakarta.annotation.PreDestroy;
 @Service
 public class CodeService {
 
-    Logger LOG = LoggerFactory.getLogger(CodeService.class);
+    private static final Logger LOG = LoggerFactory.getLogger(CodeService.class);
 
-    private static final String OUTPUT_PATH = "/output/";
+    private static final String INPUT_FOLDER_NAME = "/input";
+
+    private static String LOCAL_IO_PATH;
+    private static String REMOTE_IO_PATH;
+
+    private static String LOCAL_INPUT_PATH;
+    private static String REMOTE_INPUT_PATH;
 
     private DockerClient dockerClient;
     private Map<Language, String> languageContainerIdMap = new HashMap<>();
 
     private final DockerConfig dockerConfig;
 
-    public CodeService(DockerConfig dockerConfig) {
+    public CodeService(DockerConfig dockerConfig, AppConfig appConfig) {
         this.dockerConfig = dockerConfig;
+        LOCAL_IO_PATH = appConfig.getLocalIoPath();
+        REMOTE_IO_PATH = appConfig.getRemoteIoPath();
+        LOCAL_INPUT_PATH = LOCAL_IO_PATH + "/" + INPUT_FOLDER_NAME;
+        REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
     }
 
     @PostConstruct
@@ -73,25 +81,17 @@ public class CodeService {
 
         // pull images and init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
-            final String INPUT_PATH = getInputPath(language);
 
             try {
 
                 // create I/O directories
-                Files.createDirectories(Path.of(OUTPUT_PATH));
-                Files.createDirectories(Path.of(INPUT_PATH));
+                Files.createDirectories(Path.of(LOCAL_INPUT_PATH));
 
                 // pull image
                 dockerClient
                         .pullImageCmd(language.getImage())
                         .exec(new ResultCallback.Adapter<PullResponseItem>())
                         .awaitCompletion();
-
-                // I/O volumes bindings
-                HostConfig hostConfig = new HostConfig();
-                Bind inputBind = new Bind("/c" + INPUT_PATH, new Volume(INPUT_PATH));
-                Bind outputBind = new Bind("/c" + OUTPUT_PATH, new Volume(OUTPUT_PATH));
-                hostConfig.setBinds(inputBind, outputBind);
 
                 // stop and remove container if already exists
                 List<Container> matchingContainers = dockerClient
@@ -104,7 +104,8 @@ public class CodeService {
                 }
 
                 // create container with prepair and never ending command
-                String prepareCommand = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
+                String prepareCommand = "mkdir -p " + REMOTE_INPUT_PATH + " && cd " + REMOTE_INPUT_PATH
+                        + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
                 switch (language) {
                     case PYTHON:
                         prepareCommand += "pip install pipreqs && ";
@@ -118,9 +119,9 @@ public class CodeService {
                         .createContainerCmd(language.getImage())
                         .withName(getContainerName(language))
                         .withCmd("sh", "-c", prepareCommand + "while true; do sleep 1; done")
-                        .withHostConfig(hostConfig)
                         .withAttachStdout(true)
                         .withAttachStderr(true)
+                        .withUser(language.getUser())
                         .exec();
                 String containerId = createContainerResponse.getId();
 
@@ -138,7 +139,7 @@ public class CodeService {
                         .withStdErr(true)
                         .withStdOut(true)
                         .withFollowStream(true)
-                        .exec(new LoggingResultCallback());
+                        .exec(new LoggingResultCallback(language));
 
             } catch (InterruptedException | IOException e) {
                 throw new RuntimeException(e);
@@ -161,17 +162,17 @@ public class CodeService {
 
         try {
 
-            final String INPUT_PATH = getInputPath(language);
             final String SOURCE_FILENAME = "source" + language.getSourceFileExtension();
             String containerId = languageContainerIdMap.get(language);
 
             // write source code to input file
-            Files.writeString(Path.of(INPUT_PATH, SOURCE_FILENAME), request.code(), StandardOpenOption.CREATE,
+            Files.writeString(Path.of(LOCAL_INPUT_PATH, SOURCE_FILENAME), request.code(), StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
+            copyToContainer(containerId, LOCAL_INPUT_PATH, REMOTE_IO_PATH);
 
             // build prepare command
             List<Dependency> dependencies = Arrays.asList(request.dependencies());
-            String prepareCommand = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\"";
+            String prepareCommand = "cd " + REMOTE_INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\"";
             switch (language) {
                 case PYTHON:
                     prepareCommand += " && pipreqs --force .";
@@ -200,11 +201,11 @@ public class CodeService {
             // run prepare command
             dockerClient
                     .execStartCmd(createPrepareCommandResponse.getId())
-                    .exec(new LoggingResultCallback())
+                    .exec(new LoggingResultCallback(language))
                     .awaitCompletion();
 
             // build command
-            String command = "cd " + INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
+            String command = "cd " + REMOTE_INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\" && ";
             switch (language) {
                 case PYTHON:
                     command += "python " + SOURCE_FILENAME;
@@ -262,6 +263,12 @@ public class CodeService {
      */
     private class LoggingResultCallback extends ResultCallback.Adapter<Frame> {
 
+        private Language language;
+
+        public LoggingResultCallback(Language language) {
+            this.language = language;
+        }
+
         @Override
         public void onNext(Frame frame) {
 
@@ -274,7 +281,7 @@ public class CodeService {
                 default:
                     throw new RuntimeException("unknown stream type:" + frame.getStreamType());
             };
-            LOG.atLevel(logLevel).log(frameToString(frame));
+            LOG.atLevel(logLevel).log("[" + language + "] " + frameToString(frame));
         }
 
     }
@@ -291,10 +298,6 @@ public class CodeService {
         } finally {
             threadPool.shutdown();
         }
-    }
-
-    private String getInputPath(Language language) {
-        return "/input/" + language;
     }
 
     private String getContainerName(Language language) {
@@ -316,6 +319,16 @@ public class CodeService {
             dockerClient.stopContainerCmd(containerId).exec();
         }
         dockerClient.removeContainerCmd(containerId).exec();
+
+    }
+
+    private void copyToContainer(String containerId, String sourcePath, String targetPath) throws IOException {
+        dockerClient
+                .copyArchiveToContainerCmd(containerId)
+                .withHostResource(sourcePath)
+                .withRemotePath(targetPath)
+                .withCopyUIDGID(true)
+                .exec();
     }
 
 }
