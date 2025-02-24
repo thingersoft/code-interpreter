@@ -33,7 +33,8 @@ class CodeServiceTest {
 
 				}""".formatted(outputString);
 
-		ExecuteCodeResult executeCodeResult = codeService.executeCode(new ExecuteCodeRequest(Language.JAVA, code));
+		ExecuteCodeResult executeCodeResult = codeService
+				.executeCode(new ExecuteCodeRequest(Language.JAVA, code, null));
 
 		assertEquals(outputString, executeCodeResult.stdOut().trim());
 
@@ -51,7 +52,7 @@ class CodeServiceTest {
 				console.log('%s');""".formatted(outputString);
 
 		ExecuteCodeResult executeCodeResult = codeService
-				.executeCode(new ExecuteCodeRequest(Language.TYPESCRIPT, code, expressDependency));
+				.executeCode(new ExecuteCodeRequest(Language.TYPESCRIPT, code, null, expressDependency));
 
 		assertTrue(executeCodeResult.stdOut().trim().endsWith(outputString));
 
@@ -85,7 +86,8 @@ class CodeServiceTest {
 				print('%s')""".formatted(outputString);
 
 		ExecuteCodeResult executeCodeResult = codeService
-				.executeCode(new ExecuteCodeRequest(Language.PYTHON, code, pandasDependency, matplotlibDependency));
+				.executeCode(
+						new ExecuteCodeRequest(Language.PYTHON, code, null, pandasDependency, matplotlibDependency));
 
 		assertTrue(executeCodeResult.stdOut().trim().endsWith(outputString));
 

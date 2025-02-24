@@ -1,25 +1,27 @@
 package it.aci.ai.mcp.servers.code_interpreter.config;
 
+import java.nio.file.Path;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @ConfigurationProperties("app")
 @Validated
 public class AppConfig {
 
-    @NotBlank
-    private String localIoPath;
-    @NotBlank
+    @NotNull
+    private Path localIoPath;
+    @NotNull
     private String remoteIoPath;
 
-    public AppConfig(@NotBlank String localIoPath, @NotBlank String remoteIoPath) {
+    public AppConfig(Path localIoPath, String remoteIoPath) {
         this.localIoPath = localIoPath;
         this.remoteIoPath = remoteIoPath;
     }
 
-    public String getLocalIoPath() {
+    public Path getLocalIoPath() {
         return localIoPath;
     }
 

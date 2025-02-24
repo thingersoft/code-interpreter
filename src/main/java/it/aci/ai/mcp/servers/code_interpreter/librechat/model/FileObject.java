@@ -1,6 +1,6 @@
 package it.aci.ai.mcp.servers.code_interpreter.librechat.model;
 
-import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Objects;
 
 import org.springframework.validation.annotation.Validated;
@@ -17,6 +17,17 @@ import jakarta.validation.Valid;
  */
 @Validated
 public class FileObject {
+
+  private String fileId;
+
+  public String getFileId() {
+    return fileId;
+  }
+
+  public void setFileId(String fileId) {
+    this.fileId = fileId;
+  }
+
   @JsonProperty("name")
 
   @JsonInclude(JsonInclude.Include.NON_ABSENT) // Exclude from JSON if absent
@@ -45,13 +56,13 @@ public class FileObject {
 
   @JsonInclude(JsonInclude.Include.NON_ABSENT) // Exclude from JSON if absent
   @JsonSetter(nulls = Nulls.FAIL) // FAIL setting if the value is null
-  private BigDecimal size = null;
+  private Integer size = null;
 
   @JsonProperty("lastModified")
 
   @JsonInclude(JsonInclude.Include.NON_ABSENT) // Exclude from JSON if absent
   @JsonSetter(nulls = Nulls.FAIL) // FAIL setting if the value is null
-  private String lastModified = null;
+  private Instant lastModified = null;
 
   @JsonProperty("etag")
 
@@ -151,7 +162,7 @@ public class FileObject {
     this.content = content;
   }
 
-  public FileObject size(BigDecimal size) {
+  public FileObject size(Integer size) {
 
     this.size = size;
     return this;
@@ -164,15 +175,15 @@ public class FileObject {
    **/
 
   @Valid
-  public BigDecimal getSize() {
+  public Integer getSize() {
     return size;
   }
 
-  public void setSize(BigDecimal size) {
+  public void setSize(Integer size) {
     this.size = size;
   }
 
-  public FileObject lastModified(String lastModified) {
+  public FileObject lastModified(Instant lastModified) {
 
     this.lastModified = lastModified;
     return this;
@@ -184,11 +195,11 @@ public class FileObject {
    * @return lastModified
    **/
 
-  public String getLastModified() {
+  public Instant getLastModified() {
     return lastModified;
   }
 
-  public void setLastModified(String lastModified) {
+  public void setLastModified(Instant lastModified) {
     this.lastModified = lastModified;
   }
 
