@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
@@ -15,6 +16,8 @@ import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
 @SpringBootTest
 class CodeServiceTest {
 
+	@Autowired
+	private AppConfig appConfig;
 	@Autowired
 	private CodeService codeService;
 
@@ -81,9 +84,9 @@ class CodeServiceTest {
 				ax.set_title('Fruit supply by kind and color')
 				ax.legend(title='Fruit color')
 
-				plt.savefig('/output/foo.png')
+				plt.savefig('%s/output/foo.png')
 
-				print('%s')""".formatted(outputString);
+				print('%s')""".formatted(appConfig.getRemoteIoPath(), outputString);
 
 		ExecuteCodeResult executeCodeResult = codeService
 				.executeCode(
