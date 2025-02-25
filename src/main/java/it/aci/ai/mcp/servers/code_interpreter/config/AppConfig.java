@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 @ConfigurationProperties("app")
@@ -12,13 +13,16 @@ import jakarta.validation.constraints.NotNull;
 public class AppConfig {
 
     @NotNull
-    private Path localIoPath;
-    @NotNull
-    private String remoteIoPath;
+    private final Path localIoPath;
+    @NotBlank
+    private final String remoteIoPath;
+    @NotBlank
+    private final String apiKey;
 
-    public AppConfig(Path localIoPath, String remoteIoPath) {
+    public AppConfig(Path localIoPath, String remoteIoPath, String apiKey) {
         this.localIoPath = localIoPath;
         this.remoteIoPath = remoteIoPath;
+        this.apiKey = apiKey;
     }
 
     public Path getLocalIoPath() {
@@ -27,6 +31,10 @@ public class AppConfig {
 
     public String getRemoteIoPath() {
         return remoteIoPath;
+    }
+
+    public String getApiKey() {
+        return apiKey;
     }
 
 }

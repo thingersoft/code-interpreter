@@ -28,10 +28,12 @@ import it.aci.ai.mcp.servers.code_interpreter.services.CodeService;
 import jakarta.validation.Valid;
 
 @RestController
-@RequestMapping("librechat")
+@RequestMapping(LibreChatApiController.LIBRECHAT_API_PATH)
 public class LibreChatApiController {
 
-    private CodeService codeService;
+    public static final String LIBRECHAT_API_PATH = "/librechat";
+
+    private final CodeService codeService;
 
     public LibreChatApiController(CodeService codeService) {
         this.codeService = codeService;
