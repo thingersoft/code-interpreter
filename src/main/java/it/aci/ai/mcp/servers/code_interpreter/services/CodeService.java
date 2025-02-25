@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -135,12 +136,14 @@ public class CodeService {
                 Files.createDirectories(LOCAL_INPUT_PATH);
 
                 // pull image
+                logInfo(language, "Pulling image");
                 dockerClient
                         .pullImageCmd(language.getImage())
                         .exec(new ResultCallback.Adapter<PullResponseItem>())
                         .awaitCompletion();
 
                 // stop and remove container if already exists
+                logInfo(language, "Stopping and removing existing container");
                 List<Container> matchingContainers = dockerClient
                         .listContainersCmd()
                         .withShowAll(true)
@@ -151,6 +154,7 @@ public class CodeService {
                 }
 
                 // create container with never ending command
+                logInfo(language, "Creating container");
                 CreateContainerResponse createContainerResponse = dockerClient
                         .createContainerCmd(language.getImage())
                         .withName(getContainerName(language))
@@ -165,6 +169,7 @@ public class CodeService {
                 languageContainerIdMap.put(language, containerId);
 
                 // container start
+                logInfo(language, "Starting container");
                 dockerClient
                         .startContainerCmd(containerId)
                         .exec();
@@ -178,7 +183,9 @@ public class CodeService {
                         .exec(new LoggingResultCallback(language));
 
                 // init execution environment
+                logInfo(language, "Init execution environment");
                 List<String> initEnvCommands = new ArrayList<>();
+                initEnvCommands.addAll(getSetEnvVariablesCommands(Map.of("PIP_DISABLE_PIP_VERSION_CHECK", "1")));
                 initEnvCommands.add("mkdir -p " + REMOTE_INPUT_PATH + " " + REMOTE_OUTPUT_PATH);
                 initEnvCommands.add(CD_TO_INPUT_COMMAND);
                 switch (language) {
@@ -192,6 +199,8 @@ public class CodeService {
                 }
                 runInContainer(containerId, new LoggingResultCallback(language), initEnvCommands);
 
+                logInfo(language, "Container ready");
+
             } catch (InterruptedException | IOException e) {
                 throw new RuntimeException(e);
             }
@@ -202,6 +211,7 @@ public class CodeService {
     @PreDestroy
     private void clean() {
         parallellyExecuteForEachLanguage(language -> {
+            logInfo(language, "Stopping and removing container");
             String containerId = languageContainerIdMap.get(language);
             cleanContainer(containerId);
         });
@@ -212,6 +222,8 @@ public class CodeService {
 
         Language language = request.language();
         String sessionId = request.sessionId() == null ? generateSessionId() : request.sessionId();
+
+        logInfo(language, "Session " + sessionId + " - executing code");
 
         try {
 
@@ -240,7 +252,7 @@ public class CodeService {
             prepareCommands.add("rm -rf " + REMOTE_OUTPUT_PATH + "/*");
             switch (language) {
                 case PYTHON:
-                    prepareCommands.add("pipreqs --force .");
+                    prepareCommands.add("pipreqs --scan-notebooks --force .");
                     prepareCommands.add("pip install -r requirements.txt");
                     break;
                 case TYPESCRIPT:
@@ -276,6 +288,8 @@ public class CodeService {
             List<StoredFile> outputFiles = copyFromContainer(sessionId, containerId, REMOTE_OUTPUT_PATH,
                     sessionOutputPath);
 
+            logInfo(language, "Session " + sessionId + " - code executed");
+
             try (Stream<Path> stream = Files.list(sessionOutputPath)) {
                 return new ExecuteCodeResult(collectingResultCallback.getStdOut(),
                         collectingResultCallback.getStdErr(), sessionId, outputFiles);
@@ -300,6 +314,7 @@ public class CodeService {
             throw new RuntimeException(e);
         }
         storedFileRepository.delete(storedFile);
+        LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
     }
 
     @Transactional
@@ -316,6 +331,7 @@ public class CodeService {
                 StoredFile storedFile = new StoredFile(generateFileId(), sessionId, filename, filename,
                         Instant.now(), fileContent.length, Files.probeContentType(filePath), StoredFileType.INPUT);
                 storedFiles.add(storedFileRepository.save(storedFile));
+                LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -358,7 +374,7 @@ public class CodeService {
             Level logLevel = switch (frame.getStreamType()) {
                 case STDOUT:
                 case RAW:
-                    yield Level.INFO;
+                    yield Level.TRACE;
                 case STDERR:
                     yield Level.ERROR;
                 default:
@@ -446,7 +462,7 @@ public class CodeService {
                 .execCreateCmd(containerId)
                 .withAttachStdout(true)
                 .withAttachStderr(true)
-                .withCmd("sh", "-c", String.join(" && ", commands))
+                .withCmd("sh", "-l", "-c", String.join(" && ", commands))
                 .exec();
 
         // run command
@@ -522,6 +538,14 @@ public class CodeService {
         return storedFiles;
     }
 
+    private List<String> getSetEnvVariablesCommands(Map<String, String> envVariables) {
+        List<String> setEnvVariablesCommands = envVariables.entrySet().stream()
+                .map(entry -> "echo 'export " + entry.getKey() + "=\"" + entry.getValue() + "\"' >> ~/.profile")
+                .collect(Collectors.toCollection(ArrayList::new));
+        setEnvVariablesCommands.add(". ~/.profile");
+        return setEnvVariablesCommands;
+    }
+
     private Path getUploadStoragePath(String sessionId) {
         return getSessionStoragePath(sessionId).resolve(UPLOAD_FOLDER_NAME);
     }
@@ -549,6 +573,10 @@ public class CodeService {
         }
         uidLength = uidLength - prefix.length();
         return prefix + NanoIdUtils.randomNanoId(UID_RANDOM, UID_ALPHABET, uidLength);
+    }
+
+    private static void logInfo(Language language, String message) {
+        LOG.info("[" + language + "] " + message);
     }
 
 }
