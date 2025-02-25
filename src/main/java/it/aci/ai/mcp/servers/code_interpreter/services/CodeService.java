@@ -218,7 +218,7 @@ public class CodeService {
     }
 
     @Transactional
-    public ExecuteCodeResult executeCode(ExecuteCodeRequest request) {
+    public synchronized ExecuteCodeResult executeCode(ExecuteCodeRequest request) {
 
         Language language = request.language();
         String sessionId = request.sessionId() == null ? generateSessionId() : request.sessionId();
