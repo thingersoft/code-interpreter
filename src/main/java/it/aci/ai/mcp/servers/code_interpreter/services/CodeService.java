@@ -91,7 +91,7 @@ public class CodeService {
     private static String REMOTE_INPUT_PATH;
     private static String REMOTE_OUTPUT_PATH;
 
-    private static String INIT_COMMAND;
+    private static String CD_TO_INPUT_COMMAND;
 
     private DockerClient dockerClient;
     private Map<Language, String> languageContainerIdMap = new HashMap<>();
@@ -111,7 +111,7 @@ public class CodeService {
         REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
         REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/" + OUTPUT_FOLDER_NAME;
 
-        INIT_COMMAND = "cd " + REMOTE_INPUT_PATH + " && export PATH=\"$HOME/.local/bin:$PATH\"";
+        CD_TO_INPUT_COMMAND = "cd " + REMOTE_INPUT_PATH;
     }
 
     @PostConstruct
@@ -150,22 +150,11 @@ public class CodeService {
                     cleanContainer(container.getId());
                 }
 
-                // create container with prepair and never ending command
-                String prepareCommand = "mkdir -p " + REMOTE_INPUT_PATH + " " + REMOTE_OUTPUT_PATH + " && "
-                        + INIT_COMMAND + " && ";
-                switch (language) {
-                    case PYTHON:
-                        prepareCommand += "pip install pipreqs && ";
-                        break;
-                    case TYPESCRIPT:
-                        break;
-                    case JAVA:
-                        break;
-                }
+                // create container with never ending command
                 CreateContainerResponse createContainerResponse = dockerClient
                         .createContainerCmd(language.getImage())
                         .withName(getContainerName(language))
-                        .withCmd("sh", "-c", prepareCommand + "while true; do sleep 1; done")
+                        .withCmd("sh", "-c", "while true; do sleep 1; done")
                         .withAttachStdout(true)
                         .withAttachStderr(true)
                         .withUser(language.getUser())
@@ -187,6 +176,21 @@ public class CodeService {
                         .withStdOut(true)
                         .withFollowStream(true)
                         .exec(new LoggingResultCallback(language));
+
+                // init execution environment
+                List<String> initEnvCommands = new ArrayList<>();
+                initEnvCommands.add("mkdir -p " + REMOTE_INPUT_PATH + " " + REMOTE_OUTPUT_PATH);
+                initEnvCommands.add(CD_TO_INPUT_COMMAND);
+                switch (language) {
+                    case PYTHON:
+                        initEnvCommands.add("pip install pipreqs");
+                        break;
+                    case TYPESCRIPT:
+                        break;
+                    case JAVA:
+                        break;
+                }
+                runInContainer(containerId, new LoggingResultCallback(language), initEnvCommands);
 
             } catch (InterruptedException | IOException e) {
                 throw new RuntimeException(e);
@@ -229,46 +233,44 @@ public class CodeService {
             }
             copyToContainer(containerId, LOCAL_INPUT_PATH, REMOTE_IO_PATH);
 
-            // build prepare command
+            // prepare execution environment
             List<Dependency> dependencies = Arrays.asList(request.dependencies());
-            String prepareCommand = INIT_COMMAND + " && rm -rf " + REMOTE_OUTPUT_PATH + "/*";
+            List<String> prepareCommands = new ArrayList<>();
+            prepareCommands.add(CD_TO_INPUT_COMMAND);
+            prepareCommands.add("rm -rf " + REMOTE_OUTPUT_PATH + "/*");
             switch (language) {
                 case PYTHON:
-                    prepareCommand += " && pipreqs --force .";
-                    prepareCommand += " && pip install -r requirements.txt";
+                    prepareCommands.add("pipreqs --force .");
+                    prepareCommands.add("pip install -r requirements.txt");
                     break;
                 case TYPESCRIPT:
                     if (!dependencies.isEmpty()) {
-                        prepareCommand += " && npm install ";
-                        prepareCommand += dependencies.stream()
+                        prepareCommands.add("npm install " + dependencies.stream()
                                 .map(dep -> dep.id() + (dep.version() != null ? "@" + dep.version() : ""))
-                                .reduce("", (partial, current) -> partial + " " + current);
+                                .reduce("", (partial, current) -> partial + " " + current));
                     }
                     break;
                 case JAVA:
                     break;
             }
+            runInContainer(containerId, new LoggingResultCallback(language), prepareCommands);
 
-            // run prepare command
-            runInContainer(containerId, prepareCommand, new LoggingResultCallback(language));
-
-            // build command
-            String command = INIT_COMMAND + " && ";
+            // execute code and collect output
+            List<String> commands = new ArrayList<>();
+            commands.add(CD_TO_INPUT_COMMAND);
             switch (language) {
                 case PYTHON:
-                    command += "python " + sourceFilename;
+                    commands.add("python " + sourceFilename);
                     break;
                 case TYPESCRIPT:
-                    command += "node " + sourceFilename;
+                    commands.add("node " + sourceFilename);
                     break;
                 case JAVA:
-                    command += "java " + sourceFilename;
+                    commands.add("java " + sourceFilename);
                     break;
             }
-
-            // run command and collect output
             CollectingResultCallback collectingResultCallback = new CollectingResultCallback();
-            runInContainer(containerId, command, collectingResultCallback);
+            runInContainer(containerId, collectingResultCallback, commands);
 
             // collect and store produced files
             List<StoredFile> outputFiles = copyFromContainer(sessionId, containerId, REMOTE_OUTPUT_PATH,
@@ -436,14 +438,15 @@ public class CodeService {
 
     }
 
-    private void runInContainer(String containerId, String command, ResultCallback.Adapter<Frame> resultCallback)
+    private void runInContainer(String containerId, ResultCallback.Adapter<Frame> resultCallback, List<String> commands)
             throws InterruptedException {
-        // create command
+        // prepend init and build command
+        commands.add(0, "export PATH=\"$HOME/.local/bin:$PATH\"");
         ExecCreateCmdResponse createPrepareCommandResponse = dockerClient
                 .execCreateCmd(containerId)
                 .withAttachStdout(true)
                 .withAttachStderr(true)
-                .withCmd("sh", "-c", command)
+                .withCmd("sh", "-c", String.join(" && ", commands))
                 .exec();
 
         // run command
