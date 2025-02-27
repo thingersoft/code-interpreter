@@ -7,7 +7,7 @@
 
     <appender name="STDOUT" class="ConsoleAppender">
         <encoder class="PatternLayoutEncoder">
-            <pattern>%black(%d{ISO8601}) %highlight(%-5level) %msg%n%throwable</pattern>
+            <pattern>%black(%d{ISO8601} %-36.36logger{36}) %highlight(%-5level) %msg%n%throwable</pattern>
         </encoder>
     </appender>
 
