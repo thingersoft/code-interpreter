@@ -2,30 +2,24 @@ package it.aci.ai.mcp.servers.code_interpreter.dto;
 
 public enum Language {
 
-    PYTHON("registry.gitlab.informatica.aci.it/ccsc/images/release/python:3.11", ".py", "python"),
-    TYPESCRIPT("registry.gitlab.informatica.aci.it/ccsc/images/release/node:18.12", ".ts", "node"),
-    JAVA("eclipse-temurin:21-jdk", ".java", "root");
+    PYTHON("python:3.12", ".py"),
+    TYPESCRIPT("node:23", ".ts"),
+    JAVA("eclipse-temurin:17-jdk-jammy", ".java");
 
-    private Language(String image, String sourceFileExtension, String user) {
-        this.image = image;
+    private Language(String baseImage, String sourceFileExtension) {
+        this.baseImage = baseImage;
         this.sourceFileExtension = sourceFileExtension;
-        this.user = user;
     }
 
-    private String image;
+    private String baseImage;
     private String sourceFileExtension;
-    private String user;
 
     public String getSourceFileExtension() {
         return sourceFileExtension;
     }
 
-    public String getImage() {
-        return image;
-    }
-
-    public String getUser() {
-        return user;
+    public String getBaseImage() {
+        return baseImage;
     }
 
 }

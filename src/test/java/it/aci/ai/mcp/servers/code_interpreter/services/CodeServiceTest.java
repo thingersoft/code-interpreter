@@ -30,9 +30,9 @@ class CodeServiceTest {
 
 				public class Main {
 
-					public static void main(String[] args) {
-						System.out.println("%s");
-					}
+				public static void main(String[] args) {
+				System.out.println("%s");
+				}
 
 				}""".formatted(outputString);
 
@@ -55,7 +55,8 @@ class CodeServiceTest {
 				console.log('%s');""".formatted(outputString);
 
 		ExecuteCodeResult executeCodeResult = codeService
-				.executeCode(new ExecuteCodeRequest(Language.TYPESCRIPT, code, null, expressDependency));
+				.executeCode(new ExecuteCodeRequest(Language.TYPESCRIPT, code, null,
+						expressDependency));
 
 		assertTrue(executeCodeResult.stdOut().trim().endsWith(outputString));
 

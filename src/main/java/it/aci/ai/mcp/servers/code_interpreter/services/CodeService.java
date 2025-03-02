@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
@@ -29,18 +30,23 @@ import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
+import org.springframework.boot.info.BuildProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.FileSystemUtils;
+import org.springframework.util.StringUtils;
 
 import com.aventrix.jnanoid.jnanoid.NanoIdUtils;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
+import com.github.dockerjava.api.command.BuildImageCmd;
+import com.github.dockerjava.api.command.BuildImageResultCallback;
 import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
+import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.model.BuildResponseItem;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.Frame;
-import com.github.dockerjava.api.model.PullResponseItem;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
@@ -99,8 +105,10 @@ public class CodeService {
 
     private final DockerConfig dockerConfig;
     private final StoredFileRepository storedFileRepository;
+    private final BuildProperties buildProperties;
 
-    public CodeService(DockerConfig dockerConfig, AppConfig appConfig, StoredFileRepository storedFileRepository) {
+    public CodeService(DockerConfig dockerConfig, AppConfig appConfig, StoredFileRepository storedFileRepository,
+            BuildProperties buildProperties) {
         this.storedFileRepository = storedFileRepository;
         this.dockerConfig = dockerConfig;
 
@@ -111,6 +119,7 @@ public class CodeService {
         REMOTE_IO_PATH = appConfig.getRemoteIoPath();
         REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
         REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/" + OUTPUT_FOLDER_NAME;
+        this.buildProperties = buildProperties;
 
         CD_TO_INPUT_COMMAND = "cd " + REMOTE_INPUT_PATH;
     }
@@ -127,20 +136,16 @@ public class CodeService {
                 .build();
         dockerClient = DockerClientImpl.getInstance(config, httpClient);
 
-        // pull images and init containers for each supported language in parallel
+        // init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
+
+            String imageName = language.name().toLowerCase() + "-sandbox:" + buildProperties.getVersion();
+            String imageUser = "intepreter";
 
             try {
 
                 // create I/O directories
                 Files.createDirectories(LOCAL_INPUT_PATH);
-
-                // pull image
-                logInfo(language, "Pulling image");
-                dockerClient
-                        .pullImageCmd(language.getImage())
-                        .exec(new ResultCallback.Adapter<PullResponseItem>())
-                        .awaitCompletion();
 
                 // stop and remove container if already exists
                 logInfo(language, "Stopping and removing existing container");
@@ -153,15 +158,65 @@ public class CodeService {
                     cleanContainer(container.getId());
                 }
 
-                // create container with never ending command
+                try {
+                    // check if a sandbox image produced by the current software version exists
+                    dockerClient
+                            .inspectImageCmd(imageName)
+                            .exec();
+                    logInfo(language, "Image found");
+                } catch (NotFoundException e) {
+                    // sandbox image doesn't exist, build it
+                    logInfo(language, "Image not found, building");
+                    try (InputStream is = this.getClass().getResourceAsStream("/DockerFile.sandbox")) {
+                        Path tmpDir = Files.createTempDirectory("DockerFile-" + language);
+                        File tmpFile = tmpDir.resolve("DockerFile").toFile();
+                        try (FileOutputStream fos = new FileOutputStream(tmpFile)) {
+                            is.transferTo(fos);
+                        }
+
+                        BuildImageCmd buildImageCmd = dockerClient
+                                .buildImageCmd(tmpFile)
+                                .withTags(Set.of(imageName))
+                                .withBuildArg("FROM_IMAGE", language.getBaseImage())
+                                .withBuildArg("USER", imageUser)
+                                .withBuildArg("INPUT_PATH", REMOTE_INPUT_PATH)
+                                .withBuildArg("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
+
+                        List<String> initCommands = new ArrayList<>();
+
+                        switch (language) {
+                            case PYTHON:
+                                initCommands.addAll(
+                                        getSetEnvVariablesCommands(Map.of("PIP_DISABLE_PIP_VERSION_CHECK", "1")));
+                                initCommands.add("pip install pipreqs");
+                                break;
+
+                            default:
+                                break;
+                        }
+
+                        buildImageCmd.withBuildArg("INIT_COMMAND", String.join(" && ", initCommands));
+
+                        BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
+                        buildImageCmd.exec(buildImageResultCallback);
+                        String imageId = buildImageResultCallback.awaitImageId();
+                        logInfo(language, "Built image with id " + imageId);
+                        logAtLevel(language,
+                                "Image build log: " + System.lineSeparator()
+                                        + String.join(System.lineSeparator(),
+                                                buildImageResultCallback.getBuildImageSteps()),
+                                Level.TRACE);
+                    }
+                }
+
+                // create container from sandbox image
                 logInfo(language, "Creating container");
                 CreateContainerResponse createContainerResponse = dockerClient
-                        .createContainerCmd(language.getImage())
+                        .createContainerCmd(imageName)
                         .withName(getContainerName(language))
-                        .withCmd("sh", "-c", "while true; do sleep 1; done")
                         .withAttachStdout(true)
                         .withAttachStderr(true)
-                        .withUser(language.getUser())
+                        .withUser(imageUser)
                         .exec();
                 String containerId = createContainerResponse.getId();
 
@@ -182,26 +237,9 @@ public class CodeService {
                         .withFollowStream(true)
                         .exec(new LoggingResultCallback(language));
 
-                // init execution environment
-                logInfo(language, "Init execution environment");
-                List<String> initEnvCommands = new ArrayList<>();
-                initEnvCommands.addAll(getSetEnvVariablesCommands(Map.of("PIP_DISABLE_PIP_VERSION_CHECK", "1")));
-                initEnvCommands.add("mkdir -p " + REMOTE_INPUT_PATH + " " + REMOTE_OUTPUT_PATH);
-                initEnvCommands.add(CD_TO_INPUT_COMMAND);
-                switch (language) {
-                    case PYTHON:
-                        initEnvCommands.add("pip install pipreqs");
-                        break;
-                    case TYPESCRIPT:
-                        break;
-                    case JAVA:
-                        break;
-                }
-                runInContainer(containerId, new LoggingResultCallback(language), initEnvCommands);
-
                 logInfo(language, "Container ready");
 
-            } catch (InterruptedException | IOException e) {
+            } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         });
@@ -355,6 +393,28 @@ public class CodeService {
                 : getUploadStoragePath(storedFile.sessionId());
         Path filePath = basePath.resolve(storedFile.relativePath());
         return filePath;
+    }
+
+    /**
+     * Callback to collect image build log
+     */
+    private class BuildSandboxImageResultCallback extends BuildImageResultCallback {
+
+        private List<String> buildImageSteps = new ArrayList<>();
+
+        public List<String> getBuildImageSteps() {
+            return buildImageSteps;
+        }
+
+        @Override
+        public void onNext(BuildResponseItem item) {
+            super.onNext(item);
+            String itemStream = item.getStream();
+            if (StringUtils.hasText(itemStream)) {
+                itemStream = itemStream.replaceAll("[\r\n]+$", ""); // Remove trailing newlines
+                buildImageSteps.add(itemStream);
+            }
+        }
     }
 
     /**
@@ -576,7 +636,11 @@ public class CodeService {
     }
 
     private static void logInfo(Language language, String message) {
-        LOG.info("[" + language + "] " + message);
+        logAtLevel(language, message, Level.INFO);
+    }
+
+    private static void logAtLevel(Language language, String message, Level level) {
+        LOG.atLevel(level).log("[" + language + "] " + message);
     }
 
 }
