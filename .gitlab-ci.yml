@@ -1,0 +1,25 @@
+.image: &image "registry.gitlab.informatica.aci.it/ccsc/images/maven:3.9.9-openjdk-21"
+
+stages: [check,test,build,code-analysis,publish,release,deploy,security]
+
+include:
+  - project: 'project-templates/globals'
+    ref: v1.0.0
+    file: '/.config.yaml'
+    
+  - component: $CI_SERVER_FQDN/project-templates/components/maven/rel-check@1
+    inputs:
+        image: *image
+  - component: $CI_SERVER_FQDN/project-templates/components/maven/test@1
+    inputs:
+        image: *image
+  - component: $CI_SERVER_FQDN/project-templates/components/maven/build@1
+    inputs:
+        image: *image
+  - component: $CI_SERVER_FQDN/project-templates/components/maven/sonar@1
+  - component: $CI_SERVER_FQDN/project-templates/components/dockerize/publish@1
+  - component: $CI_SERVER_FQDN/project-templates/components/releasing/glab-release@1
+  - component: $CI_SERVER_FQDN/project-templates/components/gitops/deploy@1
+  - component: $CI_SERVER_FQDN/project-templates/components/maven/dep-check@1
+  - component: $CI_SERVER_FQDN/project-templates/components/security/source-scan@1
+  - component: $CI_SERVER_FQDN/project-templates/components/security/image-scan@1
