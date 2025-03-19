@@ -1,5 +1,6 @@
 package it.aci.ai.mcp.servers.code_interpreter.services;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -9,10 +10,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.KeyFactory;
+import java.security.KeyStore;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,9 +32,12 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import javax.net.ssl.SSLContext;
+
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.io.IOUtils;
+import org.apache.hc.core5.ssl.SSLContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
@@ -51,7 +62,7 @@ import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
-import com.github.dockerjava.transport.DockerHttpClient;
+import com.github.dockerjava.transport.SSLConfig;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
 import it.aci.ai.mcp.servers.code_interpreter.config.DockerConfig;
@@ -131,10 +142,24 @@ public class CodeService {
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
                 .withDockerHost(dockerConfig.getHost())
                 .build();
-        DockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()
-                .dockerHost(config.getDockerHost())
-                .build();
-        dockerClient = DockerClientImpl.getInstance(config, httpClient);
+        ApacheDockerHttpClient.Builder builder = new ApacheDockerHttpClient.Builder()
+                .dockerHost(config.getDockerHost());
+        if (dockerConfig.isTls()) {
+            try {
+                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
+                        dockerConfig.getClientKey());
+                SSLConfig sslConfig = new SSLConfig() {
+                    @Override
+                    public SSLContext getSSLContext() {
+                        return sslContext;
+                    }
+                };
+                builder = builder.sslConfig(sslConfig);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        dockerClient = DockerClientImpl.getInstance(config, builder.build());
 
         // init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
@@ -643,4 +668,38 @@ public class CodeService {
         LOG.atLevel(level).log("[" + language + "] " + message);
     }
 
+    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) throws Exception {
+        // Convert PEM strings to byte arrays
+        byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
+        byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
+        byte[] keyBytes = decodePemPrivateKey(clientKey);
+
+        // Load CA Certificate
+        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+        Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
+
+        // Load Client Certificate
+        Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
+
+        // Load Private Key
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
+
+        // Create a KeyStore
+        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        keyStore.load(null, null);
+        keyStore.setCertificateEntry("ca", caCertificate);
+        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
+
+        // Create an SSLContext
+        return SSLContextBuilder.create()
+                .loadTrustMaterial(keyStore, null)
+                .loadKeyMaterial(keyStore, "changeit".toCharArray())
+                .build();
+    }
+
+    private static byte[] decodePemPrivateKey(String pem) {
+        String key = pem.replaceAll("-----.*?-----", "").replaceAll("\\s", "");
+        return Base64.getDecoder().decode(key);
+    }
 }
