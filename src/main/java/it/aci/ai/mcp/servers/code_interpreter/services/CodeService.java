@@ -169,9 +169,6 @@ public class CodeService {
 
             try {
 
-                // create I/O directories
-                Files.createDirectories(LOCAL_INPUT_PATH);
-
                 // stop and remove container if already exists
                 logInfo(language, "Stopping and removing existing container");
                 List<Container> matchingContainers = dockerClient
@@ -505,15 +502,12 @@ public class CodeService {
 
     private void parallellyExecuteForEachLanguage(Consumer<Language> consumer) {
         List<Language> languages = Arrays.asList(Language.values());
-        ForkJoinPool threadPool = new ForkJoinPool(languages.size());
-        try {
+        try (ForkJoinPool threadPool = new ForkJoinPool(languages.size())) {
             threadPool.submit(() -> {
                 languages.parallelStream().forEach(consumer);
             }).get();
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
-        } finally {
-            threadPool.shutdown();
         }
     }
 
