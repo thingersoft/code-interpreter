@@ -13,20 +13,20 @@ import jakarta.validation.constraints.NotNull;
 public class AppConfig {
 
     @NotNull
-    private final Path localIoPath;
+    private final Path storagePath;
     @NotBlank
     private final String remoteIoPath;
     @NotBlank
     private final String apiKey;
 
-    public AppConfig(Path localIoPath, String remoteIoPath, String apiKey) {
-        this.localIoPath = localIoPath;
+    public AppConfig(Path storagePath, String remoteIoPath, String apiKey) {
+        this.storagePath = storagePath;
         this.remoteIoPath = remoteIoPath;
         this.apiKey = apiKey;
     }
 
-    public Path getLocalIoPath() {
-        return localIoPath;
+    public Path getStoragePath() {
+        return storagePath;
     }
 
     public String getRemoteIoPath() {

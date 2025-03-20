@@ -7,13 +7,12 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 @Document(collection = "codeinterpreter_files")
 public record StoredFile(
-        @Id String id,
-        String sessionId,
-        String filename,
-        String relativePath,
-        Instant lastModified,
-        Integer size,
-        String contentType,
-        StoredFileType type) {
+                @Id String id,
+                String sessionId,
+                String relativePath,
+                Instant lastModified,
+                Integer size,
+                String contentType,
+                StoredFileType type) {
 
 }

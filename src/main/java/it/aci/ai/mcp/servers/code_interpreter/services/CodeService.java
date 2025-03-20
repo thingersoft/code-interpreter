@@ -5,7 +5,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,11 +12,9 @@ import java.nio.file.StandardOpenOption;
 import java.security.KeyFactory;
 import java.security.KeyStore;
 import java.security.PrivateKey;
-import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.spec.PKCS8EncodedKeySpec;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -29,14 +26,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import javax.net.ssl.SSLContext;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.apache.commons.io.IOUtils;
 import org.apache.hc.core5.ssl.SSLContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +41,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.FileSystemUtils;
 import org.springframework.util.StringUtils;
 
-import com.aventrix.jnanoid.jnanoid.NanoIdUtils;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.BuildImageCmd;
@@ -70,10 +63,9 @@ import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
-import it.aci.ai.mcp.servers.code_interpreter.dto.UploadedFile;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFile;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFileType;
-import it.aci.ai.mcp.servers.code_interpreter.repositories.StoredFileRepository;
+import it.aci.ai.mcp.servers.code_interpreter.utils.AppUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
@@ -82,28 +74,9 @@ public class CodeService {
 
     private static final Logger LOG = LoggerFactory.getLogger(CodeService.class);
 
-    // Allow uppercase/lowercase letters, digits, dashes and unserscores
-    private static final char[] UID_ALPHABET = Stream.of(
-            IntStream.rangeClosed('A', 'Z'),
-            IntStream.rangeClosed('a', 'z'),
-            IntStream.rangeClosed('0', '9'))
-            .flatMapToInt(s -> s)
-            .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
-            .append('-')
-            .append('_')
-            .toString().toCharArray();
-    private static final int UID_LENGTH = 21;
-    private static final SecureRandom UID_RANDOM = new SecureRandom();
-
     private static final String INPUT_FOLDER_NAME = "input";
 
-    private static final String STORAGE_FOLDER_NAME = "storage";
-    private static final String UPLOAD_FOLDER_NAME = "upload";
-    private static final String OUTPUT_FOLDER_NAME = "output";
-
-    private static Path LOCAL_IO_PATH;
     private static Path LOCAL_INPUT_PATH;
-    private static Path LOCAL_STORAGE_PATH;
 
     private static String REMOTE_IO_PATH;
     private static String REMOTE_INPUT_PATH;
@@ -115,22 +88,20 @@ public class CodeService {
     private Map<Language, String> languageContainerIdMap = new HashMap<>();
 
     private final DockerConfig dockerConfig;
-    private final StoredFileRepository storedFileRepository;
+    private final FileService fileService;
     private final BuildProperties buildProperties;
 
-    public CodeService(DockerConfig dockerConfig, AppConfig appConfig, StoredFileRepository storedFileRepository,
+    public CodeService(DockerConfig dockerConfig, AppConfig appConfig, FileService fileService,
             BuildProperties buildProperties) {
-        this.storedFileRepository = storedFileRepository;
+        this.fileService = fileService;
         this.dockerConfig = dockerConfig;
-
-        LOCAL_IO_PATH = appConfig.getLocalIoPath();
-        LOCAL_INPUT_PATH = LOCAL_IO_PATH.resolve(INPUT_FOLDER_NAME);
-        LOCAL_STORAGE_PATH = LOCAL_IO_PATH.resolve(STORAGE_FOLDER_NAME);
+        this.buildProperties = buildProperties;
 
         REMOTE_IO_PATH = appConfig.getRemoteIoPath();
         REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
-        REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/" + OUTPUT_FOLDER_NAME;
-        this.buildProperties = buildProperties;
+        LOCAL_INPUT_PATH = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter")
+                .resolve(INPUT_FOLDER_NAME);
+        REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/output";
 
         CD_TO_INPUT_COMMAND = "cd " + REMOTE_INPUT_PATH;
     }
@@ -281,7 +252,7 @@ public class CodeService {
     public synchronized ExecuteCodeResult executeCode(ExecuteCodeRequest request) {
 
         Language language = request.language();
-        String sessionId = request.sessionId() == null ? generateSessionId() : request.sessionId();
+        String sessionId = request.sessionId() == null ? AppUtils.generateSessionId() : request.sessionId();
 
         logInfo(language, "Session " + sessionId + " - executing code");
 
@@ -290,18 +261,16 @@ public class CodeService {
             String sourceFilename = "source" + language.getSourceFileExtension();
             String containerId = languageContainerIdMap.get(language);
 
-            // prepare I/O folders
-            Path sessionOutputPath = getSessionOutputStoragePath(sessionId);
+            // prepare temp input folder
             FileSystemUtils.deleteRecursively(LOCAL_INPUT_PATH);
             Files.createDirectories(LOCAL_INPUT_PATH);
-            Files.createDirectories(sessionOutputPath);
 
             // write source code to input file and copy attachments
             Files.writeString(LOCAL_INPUT_PATH.resolve(sourceFilename), request.code(), StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
-            List<StoredFile> attachments = storedFileRepository.findBySessionIdAndType(sessionId, StoredFileType.INPUT);
+            List<StoredFile> attachments = fileService.findUploadedFiles(sessionId);
             for (StoredFile storedFile : attachments) {
-                Files.copy(getFilePath(storedFile), LOCAL_INPUT_PATH.resolve(storedFile.filename()));
+                Files.copy(fileService.getFilePath(storedFile), LOCAL_INPUT_PATH.resolve(storedFile.relativePath()));
             }
             copyToContainer(containerId, LOCAL_INPUT_PATH, REMOTE_IO_PATH);
 
@@ -345,76 +314,17 @@ public class CodeService {
             runInContainer(containerId, collectingResultCallback, commands);
 
             // collect and store produced files
-            List<StoredFile> outputFiles = copyFromContainer(sessionId, containerId, REMOTE_OUTPUT_PATH,
-                    sessionOutputPath);
+            List<StoredFile> outputFiles = saveOutput(sessionId, containerId);
 
             logInfo(language, "Session " + sessionId + " - code executed");
 
-            try (Stream<Path> stream = Files.list(sessionOutputPath)) {
-                return new ExecuteCodeResult(collectingResultCallback.getStdOut(),
-                        collectingResultCallback.getStdErr(), sessionId, outputFiles);
-            }
+            return new ExecuteCodeResult(collectingResultCallback.getStdOut(), collectingResultCallback.getStdErr(),
+                    sessionId, outputFiles);
 
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
         }
 
-    }
-
-    public List<StoredFile> findUploadedFiles(String sessionId) {
-        return storedFileRepository.findBySessionId(sessionId);
-    }
-
-    @Transactional
-    public void deleteFile(String fileId) {
-        StoredFile storedFile = storedFileRepository.findById(fileId).orElseThrow();
-        try {
-            Files.delete(getFilePath(storedFile));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        storedFileRepository.delete(storedFile);
-        LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
-    }
-
-    @Transactional
-    public List<StoredFile> uploadFile(List<UploadedFile> uploadedFiles) {
-        String sessionId = generateSessionId();
-        Path uploadStoragePath = getUploadStoragePath(sessionId);
-        List<StoredFile> storedFiles = new ArrayList<>();
-        for (UploadedFile uploadedFile : uploadedFiles) {
-            String filename = uploadedFile.name();
-            byte[] fileContent = uploadedFile.content();
-            try {
-                Files.createDirectories(uploadStoragePath);
-                Path filePath = Files.write(uploadStoragePath.resolve(filename), fileContent);
-                StoredFile storedFile = new StoredFile(generateFileId(), sessionId, filename, filename,
-                        Instant.now(), fileContent.length, Files.probeContentType(filePath), StoredFileType.INPUT);
-                storedFiles.add(storedFileRepository.save(storedFile));
-                LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return storedFiles;
-    }
-
-    public byte[] downloadFile(String fileId) {
-        StoredFile storedFile = storedFileRepository.findById(fileId).orElseThrow();
-        Path filePath = getFilePath(storedFile);
-        try {
-            return Files.readAllBytes(filePath);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private Path getFilePath(StoredFile storedFile) {
-        String sessionId = storedFile.sessionId();
-        Path basePath = StoredFileType.OUTPUT.equals(storedFile.type()) ? getSessionOutputStoragePath(sessionId)
-                : getUploadStoragePath(storedFile.sessionId());
-        Path filePath = basePath.resolve(storedFile.relativePath());
-        return filePath;
     }
 
     /**
@@ -560,18 +470,12 @@ public class CodeService {
                 .exec();
     }
 
-    private List<StoredFile> copyFromContainer(String sessionId, String containerId, String remotePath, Path localPath)
-            throws IOException {
+    private List<StoredFile> saveOutput(String sessionId, String containerId) throws IOException {
 
         List<StoredFile> storedFiles = new ArrayList<>();
 
-        File destDir = localPath.toFile();
-        if (!destDir.exists()) {
-            destDir.mkdirs();
-        }
-
         InputStream is = dockerClient
-                .copyArchiveFromContainerCmd(containerId, remotePath)
+                .copyArchiveFromContainerCmd(containerId, REMOTE_OUTPUT_PATH)
                 .exec();
 
         // untar files preserving directory structure
@@ -592,24 +496,10 @@ public class CodeService {
                     entryName = entryName.substring(rootDirName.length() + 1); // Remove root dir prefix
                 }
 
-                File outputFile = new File(destDir, entryName);
-                outputFile.getParentFile().mkdirs(); // Ensure parent directories exist
-
-                // write to file system and database
-                try (OutputStream fos = new FileOutputStream(outputFile)) {
-                    int fileSize = IOUtils.copy(tais, fos);
-                    StoredFile storedFile = new StoredFile(
-                            generateFileSystemUid(null),
-                            sessionId,
-                            outputFile.getName(),
-                            entryName,
-                            Instant.now(),
-                            fileSize,
-                            Files.probeContentType(outputFile.toPath()),
-                            StoredFileType.OUTPUT);
-
-                    storedFiles.add(storedFileRepository.save(storedFile));
-                }
+                // write file to file system and database
+                byte[] fileContent = tais.readNBytes((int) entry.getSize());
+                StoredFile storedFile = fileService.storeFile(entryName, fileContent, sessionId, StoredFileType.OUTPUT);
+                storedFiles.add(storedFile);
 
             }
         }
@@ -623,35 +513,6 @@ public class CodeService {
                 .collect(Collectors.toCollection(ArrayList::new));
         setEnvVariablesCommands.add(". ~/.profile");
         return setEnvVariablesCommands;
-    }
-
-    private Path getUploadStoragePath(String sessionId) {
-        return getSessionStoragePath(sessionId).resolve(UPLOAD_FOLDER_NAME);
-    }
-
-    private Path getSessionOutputStoragePath(String sessionId) {
-        return getSessionStoragePath(sessionId).resolve(OUTPUT_FOLDER_NAME);
-    }
-
-    private Path getSessionStoragePath(String sessionId) {
-        return LOCAL_STORAGE_PATH.resolve(sessionId);
-    }
-
-    private String generateSessionId() {
-        return generateFileSystemUid("sess-");
-    }
-
-    private String generateFileId() {
-        return generateFileSystemUid(null);
-    }
-
-    private String generateFileSystemUid(String prefix) {
-        int uidLength = UID_LENGTH;
-        if (prefix == null) {
-            prefix = "";
-        }
-        uidLength = uidLength - prefix.length();
-        return prefix + NanoIdUtils.randomNanoId(UID_RANDOM, UID_ALPHABET, uidLength);
     }
 
     private static void logInfo(Language language, String message) {
@@ -696,4 +557,5 @@ public class CodeService {
         String key = pem.replaceAll("-----.*?-----", "").replaceAll("\\s", "");
         return Base64.getDecoder().decode(key);
     }
+
 }

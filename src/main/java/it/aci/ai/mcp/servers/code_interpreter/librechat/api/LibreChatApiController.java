@@ -25,6 +25,7 @@ import it.aci.ai.mcp.servers.code_interpreter.librechat.model.FileRef;
 import it.aci.ai.mcp.servers.code_interpreter.librechat.model.UploadResponse;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFile;
 import it.aci.ai.mcp.servers.code_interpreter.services.CodeService;
+import it.aci.ai.mcp.servers.code_interpreter.services.FileService;
 import jakarta.validation.Valid;
 
 @RestController
@@ -34,22 +35,24 @@ public class LibreChatApiController {
     public static final String LIBRECHAT_API_PATH = "/librechat";
 
     private final CodeService codeService;
+    private final FileService fileService;
 
-    public LibreChatApiController(CodeService codeService) {
+    public LibreChatApiController(CodeService codeService, FileService fileService) {
         this.codeService = codeService;
+        this.fileService = fileService;
     }
 
     @DeleteMapping(value = "/files/{session_id}/{fileId}")
     public void filesSessionIdFileIdDelete(@PathVariable("session_id") String sessionId,
             @PathVariable("fileId") String fileId) {
-        codeService.deleteFile(fileId);
+        fileService.deleteFile(fileId);
     }
 
     @GetMapping(value = "/files/{session_id}")
     public List<FileObject> filesSessionIdGet(@PathVariable("session_id") String sessionId,
             @Valid @RequestParam(value = "detail", required = false, defaultValue = "simple") String detail) {
 
-        List<StoredFile> storedFiles = codeService.findUploadedFiles(sessionId);
+        List<StoredFile> storedFiles = fileService.findSessionFiles(sessionId);
 
         return storedFiles.stream()
                 .map(LibreChatApiController::toFileObject)
@@ -59,14 +62,14 @@ public class LibreChatApiController {
 
     @GetMapping(value = "/download/{sessionId}/{fileId}", produces = { "application/octet-stream" })
     public byte[] downloadSessionIdFileIdGet(@PathVariable String sessionId, @PathVariable String fileId) {
-        return codeService.downloadFile(fileId);
+        return fileService.downloadFile(fileId);
     }
 
     @PostMapping(value = "/upload", consumes = { "multipart/form-data" })
     public UploadResponse uploadPost(@RequestPart(value = "entity_id", required = false) String entityId,
             @RequestPart(value = "file", required = true) List<MultipartFile> files) {
 
-        List<StoredFile> storedFiles = codeService.uploadFile(
+        List<StoredFile> storedFiles = fileService.uploadFile(
                 files.stream()
                         .map(file -> {
                             try {
@@ -121,7 +124,7 @@ public class LibreChatApiController {
         List<FileRef> outputFiles = result.outputFiles().stream()
                 .map(outputFile -> {
                     FileRef fileRef = new FileRef();
-                    fileRef.setName(outputFile.filename());
+                    fileRef.setName(outputFile.relativePath());
                     fileRef.setId(outputFile.id());
                     fileRef.setPath("xxx");
                     return fileRef;
