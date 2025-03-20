@@ -304,7 +304,7 @@ public class CodeService {
                     commands.add("python " + sourceFilename);
                     break;
                 case TYPESCRIPT:
-                    commands.add("node " + sourceFilename);
+                    commands.add("node --no-warnings " + sourceFilename);
                     break;
                 case JAVA:
                     commands.add("java " + sourceFilename);
