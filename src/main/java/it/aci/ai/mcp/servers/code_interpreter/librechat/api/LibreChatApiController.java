@@ -16,8 +16,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
-import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
 import it.aci.ai.mcp.servers.code_interpreter.dto.UploadedFile;
+import it.aci.ai.mcp.servers.code_interpreter.enums.Language;
 import it.aci.ai.mcp.servers.code_interpreter.librechat.model.ExecuteRequest;
 import it.aci.ai.mcp.servers.code_interpreter.librechat.model.ExecuteResponse;
 import it.aci.ai.mcp.servers.code_interpreter.librechat.model.FileObject;

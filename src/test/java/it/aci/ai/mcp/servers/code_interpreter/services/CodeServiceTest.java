@@ -11,7 +11,7 @@ import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
-import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
+import it.aci.ai.mcp.servers.code_interpreter.enums.Language;
 
 @SpringBootTest
 class CodeServiceTest {

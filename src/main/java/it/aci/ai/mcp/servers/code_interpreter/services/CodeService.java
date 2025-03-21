@@ -6,16 +6,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -23,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 import org.springframework.boot.info.BuildProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.FileSystemUtils;
@@ -30,13 +30,13 @@ import org.springframework.util.FileSystemUtils;
 import com.github.dockerjava.api.model.Container;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
-import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
-import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
+import it.aci.ai.mcp.servers.code_interpreter.enums.Language;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFile;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFileType;
 import it.aci.ai.mcp.servers.code_interpreter.services.DockerService.LoggingResultCallback;
+import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvider;
 import it.aci.ai.mcp.servers.code_interpreter.utils.AppUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -61,20 +61,25 @@ public class CodeService {
     private final DockerService dockerService;
     private final FileService fileService;
     private final BuildProperties buildProperties;
+    private final ApplicationContext applicationContext;
 
     public CodeService(AppConfig appConfig, FileService fileService, DockerService dockerService,
-            BuildProperties buildProperties) {
+            BuildProperties buildProperties, ApplicationContext applicationContext) {
         this.fileService = fileService;
         this.dockerService = dockerService;
         this.buildProperties = buildProperties;
+        this.applicationContext = applicationContext;
 
         REMOTE_IO_PATH = appConfig.getRemoteIoPath();
         REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
-        LOCAL_INPUT_PATH = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter")
-                .resolve(INPUT_FOLDER_NAME);
+        LOCAL_INPUT_PATH = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
         REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/output";
 
         CD_TO_INPUT_COMMAND = "cd " + REMOTE_INPUT_PATH;
+    }
+
+    private LanguageProvider getLanguageProvider(Language language) {
+        return applicationContext.getBean(language.getProvider());
     }
 
     @PostConstruct
@@ -83,8 +88,9 @@ public class CodeService {
         // init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
 
+            LanguageProvider languageProvider = getLanguageProvider(language);
+
             String imageName = language.name().toLowerCase() + "-sandbox:" + buildProperties.getVersion();
-            String imageUser = "intepreter";
 
             try {
 
@@ -109,29 +115,11 @@ public class CodeService {
                         }
 
                         Map<String, String> buildArgs = new HashMap<>();
-                        buildArgs.put("FROM_IMAGE", language.getBaseImage());
-                        buildArgs.put("USER", imageUser);
+                        buildArgs.put("FROM_IMAGE", languageProvider.getFromImage());
+                        buildArgs.put("USER", LanguageProvider.IMAGE_USER);
                         buildArgs.put("INPUT_PATH", REMOTE_INPUT_PATH);
                         buildArgs.put("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
-
-                        List<String> initCommands = new ArrayList<>();
-                        switch (language) {
-                            case PYTHON:
-                                initCommands.addAll(
-                                        getSetEnvVariablesCommands(Map.of("PIP_DISABLE_PIP_VERSION_CHECK", "1")));
-                                initCommands.add("pip install pipreqs");
-                                break;
-
-                            case JAVA:
-                                initCommands.addAll(
-                                        getSetEnvVariablesCommands(
-                                                Map.of("MAVEN_CONFIG", "/home/" + imageUser + "/.m2")));
-                                break;
-
-                            default:
-                                break;
-                        }
-                        buildArgs.put("INIT_COMMAND", String.join(" && ", initCommands));
+                        buildArgs.put("INIT_COMMAND", String.join(" && ", languageProvider.getImageInitCommands()));
 
                         String imageId = dockerService.buildImage(tmpFile, imageName, buildArgs);
                         logInfo(language, "Built image with id " + imageId);
@@ -140,7 +128,8 @@ public class CodeService {
 
                 // create container from sandbox image
                 logInfo(language, "Creating container");
-                String containerId = dockerService.createContainer(imageName, getContainerName(language), imageUser);
+                String containerId = dockerService.createContainer(imageName, getContainerName(language),
+                        LanguageProvider.IMAGE_USER);
 
                 // populate language-container map
                 languageContainerIdMap.put(language, containerId);
@@ -170,65 +159,52 @@ public class CodeService {
     public synchronized ExecuteCodeResult executeCode(ExecuteCodeRequest request) {
 
         Language language = request.language();
+        String sourceCode = request.code();
+        Path workspaceFolder = LOCAL_INPUT_PATH.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
+        LanguageProvider languageProvider = getLanguageProvider(language);
+
         String sessionId = request.sessionId() == null ? AppUtils.generateSessionId() : request.sessionId();
 
         logInfo(language, "Session " + sessionId + " - executing code");
 
         try {
 
-            String sourceFilename = "source" + language.getSourceFileExtension();
             String containerId = languageContainerIdMap.get(language);
 
-            // prepare temp input folder
-            FileSystemUtils.deleteRecursively(LOCAL_INPUT_PATH);
-            Files.createDirectories(LOCAL_INPUT_PATH);
+            // clean local input folder
+            FileSystemUtils.deleteRecursively(workspaceFolder);
+            Files.createDirectories(workspaceFolder);
 
-            // write source code to input file and copy attachments
-            Files.writeString(LOCAL_INPUT_PATH.resolve(sourceFilename), request.code(), StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
+            // write source code and attachments to local input folder
             List<StoredFile> attachments = fileService.findUploadedFiles(sessionId);
             for (StoredFile storedFile : attachments) {
-                Files.copy(fileService.getFilePath(storedFile), LOCAL_INPUT_PATH.resolve(storedFile.relativePath()));
+                Files.copy(fileService.getFilePath(storedFile), workspaceFolder.resolve(storedFile.relativePath()));
             }
-            dockerService.copyToContainer(containerId, LOCAL_INPUT_PATH, REMOTE_IO_PATH);
+
+            // prepare workspace
+            languageProvider.prepareWorkspace(workspaceFolder, sourceCode);
+
+            // copy local input folder to container
+            dockerService.copyToContainer(containerId, workspaceFolder, REMOTE_IO_PATH);
 
             // prepare execution environment
-            List<Dependency> dependencies = Arrays.asList(request.dependencies());
             List<String> prepareCommands = new ArrayList<>();
             prepareCommands.add(CD_TO_INPUT_COMMAND);
             prepareCommands.add("rm -rf " + REMOTE_OUTPUT_PATH + "/*");
-            switch (language) {
-                case PYTHON:
-                    prepareCommands.add("pipreqs --scan-notebooks --force .");
-                    prepareCommands.add("pip install -r requirements.txt");
-                    break;
-                case TYPESCRIPT:
-                    if (!dependencies.isEmpty()) {
-                        prepareCommands.add("npm install " + dependencies.stream()
-                                .map(dep -> dep.id() + (dep.version() != null ? "@" + dep.version() : ""))
-                                .reduce("", (partial, current) -> partial + " " + current));
-                    }
-                    break;
-                case JAVA:
-                    break;
-            }
-            dockerService.runInContainer(containerId, prepareCommands, true, language.name());
+            prepareCommands.addAll(languageProvider.getPrepareExecutionCommands(workspaceFolder));
+            LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, true,
+                    language.name());
+            // TODO return errors raised by prepare phase (avoid stderr from pipreqs)
+            // if (StringUtils.hasText(prepareResult.getStdErr())) {
+            //
+            // return new ExecuteCodeResult("", prepareResult.getStdErr(), sessionId,
+            // List.of());
+            // }
 
             // execute code and collect output
             List<String> commands = new ArrayList<>();
             commands.add(CD_TO_INPUT_COMMAND);
-            switch (language) {
-                case PYTHON:
-                    commands.add("python " + sourceFilename);
-                    break;
-                case TYPESCRIPT:
-                    commands.add("node --no-warnings " + sourceFilename);
-                    break;
-                case JAVA:
-                    commands.add("java " + sourceFilename);
-                    break;
-            }
-
+            commands.addAll(languageProvider.getExecutionCommands(workspaceFolder));
             LoggingResultCallback result = dockerService.runInContainer(containerId, commands, false, null);
 
             // collect and store produced files
@@ -290,14 +266,6 @@ public class CodeService {
         }
 
         return storedFiles;
-    }
-
-    private List<String> getSetEnvVariablesCommands(Map<String, String> envVariables) {
-        List<String> setEnvVariablesCommands = envVariables.entrySet().stream()
-                .map(entry -> "echo 'export " + entry.getKey() + "=\"" + entry.getValue() + "\"' >> ~/.profile")
-                .collect(Collectors.toCollection(ArrayList::new));
-        setEnvVariablesCommands.add(". ~/.profile");
-        return setEnvVariablesCommands;
     }
 
     private static void logInfo(Language language, String message) {
