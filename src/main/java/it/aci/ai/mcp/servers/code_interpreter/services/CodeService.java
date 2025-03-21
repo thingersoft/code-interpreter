@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -28,9 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.FileSystemUtils;
 
-import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.model.Container;
-import com.github.dockerjava.api.model.Frame;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
@@ -39,6 +36,7 @@ import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Language;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFile;
 import it.aci.ai.mcp.servers.code_interpreter.models.StoredFileType;
+import it.aci.ai.mcp.servers.code_interpreter.services.DockerService.LoggingResultCallback;
 import it.aci.ai.mcp.servers.code_interpreter.utils.AppUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -143,7 +141,7 @@ public class CodeService {
 
                 // container start
                 logInfo(language, "Starting container");
-                dockerService.startContainer(containerId, new LoggingResultCallback(language));
+                dockerService.startContainer(containerId, language.name());
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
@@ -208,7 +206,7 @@ public class CodeService {
                 case JAVA:
                     break;
             }
-            dockerService.runInContainer(containerId, new LoggingResultCallback(language), prepareCommands);
+            dockerService.runInContainer(containerId, prepareCommands, true, language.name());
 
             // execute code and collect output
             List<String> commands = new ArrayList<>();
@@ -224,80 +222,18 @@ public class CodeService {
                     commands.add("java " + sourceFilename);
                     break;
             }
-            CollectingResultCallback collectingResultCallback = new CollectingResultCallback();
-            dockerService.runInContainer(containerId, collectingResultCallback, commands);
+
+            LoggingResultCallback result = dockerService.runInContainer(containerId, commands, false, null);
 
             // collect and store produced files
             List<StoredFile> outputFiles = saveOutput(sessionId, containerId);
 
             logInfo(language, "Session " + sessionId + " - code executed");
 
-            return new ExecuteCodeResult(collectingResultCallback.getStdOut(), collectingResultCallback.getStdErr(),
-                    sessionId, outputFiles);
+            return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
-        }
-
-    }
-
-    /**
-     * Callback to log container stdout and stderr
-     */
-    private class LoggingResultCallback extends ResultCallback.Adapter<Frame> {
-
-        private Language language;
-
-        public LoggingResultCallback(Language language) {
-            this.language = language;
-        }
-
-        @Override
-        public void onNext(Frame frame) {
-
-            Level logLevel = switch (frame.getStreamType()) {
-                case STDOUT:
-                case RAW:
-                    yield Level.TRACE;
-                case STDERR:
-                    yield Level.ERROR;
-                default:
-                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
-            };
-            LOG.atLevel(logLevel).log("[" + language + "] " + frameToString(frame));
-        }
-
-    }
-
-    /**
-     * Callback to collect stdout and stderr
-     */
-    private class CollectingResultCallback extends ResultCallback.Adapter<Frame> {
-
-        private List<String> outputFrames = new ArrayList<>();
-        private List<String> errorFrames = new ArrayList<>();
-
-        public void onNext(Frame frame) {
-
-            switch (frame.getStreamType()) {
-                case STDOUT:
-                    outputFrames.add(frameToString(frame));
-                    break;
-                case STDERR:
-                    errorFrames.add(frameToString(frame));
-                    break;
-                default:
-                    break;
-            }
-
-        }
-
-        public String getStdOut() {
-            return String.join("", outputFrames);
-        }
-
-        public String getStdErr() {
-            return String.join("", errorFrames);
         }
 
     }
@@ -316,10 +252,6 @@ public class CodeService {
     private String getContainerName(Language language) {
         return "code_interpreter_sandbox___" + language.name().toLowerCase();
     }
-
-    private String frameToString(Frame frame) {
-        return new String(frame.getPayload(), StandardCharsets.UTF_8);
-    };
 
     private List<StoredFile> saveOutput(String sessionId, String containerId) throws IOException {
 

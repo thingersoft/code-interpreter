@@ -25,6 +25,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.hc.core5.ssl.SSLContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -147,7 +148,9 @@ public class DockerService {
         return createContainerResponse.getId();
     }
 
-    public void startContainer(String containerId, ResultCallback.Adapter<Frame> logCallback) {
+    public LoggingResultCallback startContainer(String containerId, String logTag) {
+        LoggingResultCallback resultCallback = new LoggingResultCallback(true, logTag);
+
         dockerClient
                 .startContainerCmd(containerId)
                 .exec();
@@ -158,11 +161,16 @@ public class DockerService {
                 .withStdErr(true)
                 .withStdOut(true)
                 .withFollowStream(true)
-                .exec(logCallback);
+                .exec(resultCallback);
+
+        return resultCallback;
     }
 
-    public void runInContainer(String containerId, ResultCallback.Adapter<Frame> resultCallback, List<String> commands)
+    public LoggingResultCallback runInContainer(String containerId, List<String> commands, boolean log, String logTag)
             throws InterruptedException {
+
+        LoggingResultCallback resultCallback = new LoggingResultCallback(log, logTag);
+
         // prepend init env command
         commands.add(0, "export PATH=\"$HOME/.local/bin:$PATH\"");
         ExecCreateCmdResponse createPrepareCommandResponse = dockerClient
@@ -177,6 +185,8 @@ public class DockerService {
                 .execStartCmd(createPrepareCommandResponse.getId())
                 .exec(resultCallback)
                 .awaitCompletion();
+
+        return resultCallback;
     }
 
     public void copyToContainer(String containerId, Path localPath, String remotePath) throws IOException {
@@ -250,6 +260,57 @@ public class DockerService {
                 buildImageSteps.add(itemStream);
             }
         }
+    }
+
+    /**
+     * Callback to log container stdout and stderr
+     */
+    public class LoggingResultCallback extends ResultCallback.Adapter<Frame> {
+
+        private List<String> outputFrames = new ArrayList<>();
+        private List<String> errorFrames = new ArrayList<>();
+        private boolean log;
+        private String logPrefix = "";
+
+        public LoggingResultCallback(boolean log, String logTag) {
+            this.log = log;
+            if (StringUtils.hasText(logTag)) {
+                this.logPrefix = "[" + logTag + "] ";
+            }
+        }
+
+        @Override
+        public void onNext(Frame frame) {
+
+            Level logLevel = switch (frame.getStreamType()) {
+                case STDOUT:
+                case RAW:
+                    outputFrames.add(frameToString(frame));
+                    yield Level.TRACE;
+                case STDERR:
+                    errorFrames.add(frameToString(frame));
+                    yield Level.ERROR;
+                default:
+                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
+            };
+
+            if (log) {
+                LOG.atLevel(logLevel).log(logPrefix + frameToString(frame));
+            }
+        }
+
+        private String frameToString(Frame frame) {
+            return new String(frame.getPayload(), StandardCharsets.UTF_8);
+        };
+
+        public String getStdOut() {
+            return String.join("", outputFrames);
+        }
+
+        public String getStdErr() {
+            return String.join("", errorFrames);
+        }
+
     }
 
 }
