@@ -4,7 +4,7 @@ public enum Language {
 
     PYTHON("python:3.12", ".py"),
     TYPESCRIPT("node:23", ".ts"),
-    JAVA("eclipse-temurin:17-jdk-jammy", ".java");
+    JAVA("maven:3.9.9-eclipse-temurin-21-jammy", ".java");
 
     private Language(String baseImage, String sourceFileExtension) {
         this.baseImage = baseImage;

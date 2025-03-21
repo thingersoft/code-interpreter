@@ -122,6 +122,12 @@ public class CodeService {
                                 initCommands.add("pip install pipreqs");
                                 break;
 
+                            case JAVA:
+                                initCommands.addAll(
+                                        getSetEnvVariablesCommands(
+                                                Map.of("MAVEN_CONFIG", "/home/" + imageUser + "/.m2")));
+                                break;
+
                             default:
                                 break;
                         }

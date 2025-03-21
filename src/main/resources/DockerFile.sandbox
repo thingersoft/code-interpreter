@@ -21,4 +21,5 @@ WORKDIR $INPUT_PATH
 RUN sh -c "$INIT_COMMAND"
 
 # start with never ending command to keep the container running
+ENTRYPOINT []
 CMD ["sh", "-c", "while true; do sleep 1; done"]
