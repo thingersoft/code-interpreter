@@ -9,7 +9,7 @@
 	</parent>
 	<groupId>it.aci.ai.mcp.servers</groupId>
 	<artifactId>code-interpreter</artifactId>
-	<version>0.1.1</version>
+	<version>0.1.2-SNAPSHOT</version>
 	<name>code-interpreter</name>
 	<description>A Model Context Protocol server for sandboxed AI code execution</description>
 
