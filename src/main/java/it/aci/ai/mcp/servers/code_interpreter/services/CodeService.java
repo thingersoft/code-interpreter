@@ -1,6 +1,5 @@
 package it.aci.ai.mcp.servers.code_interpreter.services;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -9,29 +8,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.security.KeyFactory;
-import java.security.KeyStore;
-import java.security.PrivateKey;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-import javax.net.ssl.SSLContext;
-
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.apache.hc.core5.ssl.SSLContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
@@ -39,26 +27,12 @@ import org.springframework.boot.info.BuildProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.FileSystemUtils;
-import org.springframework.util.StringUtils;
 
-import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
-import com.github.dockerjava.api.command.BuildImageCmd;
-import com.github.dockerjava.api.command.BuildImageResultCallback;
-import com.github.dockerjava.api.command.CreateContainerResponse;
-import com.github.dockerjava.api.command.ExecCreateCmdResponse;
-import com.github.dockerjava.api.exception.NotFoundException;
-import com.github.dockerjava.api.model.BuildResponseItem;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.Frame;
-import com.github.dockerjava.core.DefaultDockerClientConfig;
-import com.github.dockerjava.core.DockerClientConfig;
-import com.github.dockerjava.core.DockerClientImpl;
-import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
-import com.github.dockerjava.transport.SSLConfig;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
-import it.aci.ai.mcp.servers.code_interpreter.config.DockerConfig;
 import it.aci.ai.mcp.servers.code_interpreter.dto.Dependency;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeRequest;
 import it.aci.ai.mcp.servers.code_interpreter.dto.ExecuteCodeResult;
@@ -84,17 +58,16 @@ public class CodeService {
 
     private static String CD_TO_INPUT_COMMAND;
 
-    private DockerClient dockerClient;
     private Map<Language, String> languageContainerIdMap = new HashMap<>();
 
-    private final DockerConfig dockerConfig;
+    private final DockerService dockerService;
     private final FileService fileService;
     private final BuildProperties buildProperties;
 
-    public CodeService(DockerConfig dockerConfig, AppConfig appConfig, FileService fileService,
+    public CodeService(AppConfig appConfig, FileService fileService, DockerService dockerService,
             BuildProperties buildProperties) {
         this.fileService = fileService;
-        this.dockerConfig = dockerConfig;
+        this.dockerService = dockerService;
         this.buildProperties = buildProperties;
 
         REMOTE_IO_PATH = appConfig.getRemoteIoPath();
@@ -109,29 +82,6 @@ public class CodeService {
     @PostConstruct
     private void init() throws InterruptedException, IOException {
 
-        // init docker client
-        DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                .withDockerHost(dockerConfig.getHost())
-                .build();
-        ApacheDockerHttpClient.Builder builder = new ApacheDockerHttpClient.Builder()
-                .dockerHost(config.getDockerHost());
-        if (dockerConfig.isTls()) {
-            try {
-                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
-                        dockerConfig.getClientKey());
-                SSLConfig sslConfig = new SSLConfig() {
-                    @Override
-                    public SSLContext getSSLContext() {
-                        return sslContext;
-                    }
-                };
-                builder = builder.sslConfig(sslConfig);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
-        dockerClient = DockerClientImpl.getInstance(config, builder.build());
-
         // init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
 
@@ -142,22 +92,15 @@ public class CodeService {
 
                 // stop and remove container if already exists
                 logInfo(language, "Stopping and removing existing container");
-                List<Container> matchingContainers = dockerClient
-                        .listContainersCmd()
-                        .withShowAll(true)
-                        .withNameFilter(List.of(getContainerName(language)))
-                        .exec();
+                List<Container> matchingContainers = dockerService.findContainersByName(getContainerName(language));
                 for (Container container : matchingContainers) {
-                    cleanContainer(container.getId());
+                    dockerService.cleanContainer(container.getId());
                 }
 
-                try {
-                    // check if a sandbox image produced by the current software version exists
-                    dockerClient
-                            .inspectImageCmd(imageName)
-                            .exec();
+                // check if a sandbox image produced by the current software version exists
+                if (dockerService.imageExists(imageName)) {
                     logInfo(language, "Image found");
-                } catch (NotFoundException e) {
+                } else {
                     // sandbox image doesn't exist, build it
                     logInfo(language, "Image not found, building");
                     try (InputStream is = this.getClass().getResourceAsStream("/DockerFile.sandbox")) {
@@ -167,16 +110,13 @@ public class CodeService {
                             is.transferTo(fos);
                         }
 
-                        BuildImageCmd buildImageCmd = dockerClient
-                                .buildImageCmd(tmpFile)
-                                .withTags(Set.of(imageName))
-                                .withBuildArg("FROM_IMAGE", language.getBaseImage())
-                                .withBuildArg("USER", imageUser)
-                                .withBuildArg("INPUT_PATH", REMOTE_INPUT_PATH)
-                                .withBuildArg("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
+                        Map<String, String> buildArgs = new HashMap<>();
+                        buildArgs.put("FROM_IMAGE", language.getBaseImage());
+                        buildArgs.put("USER", imageUser);
+                        buildArgs.put("INPUT_PATH", REMOTE_INPUT_PATH);
+                        buildArgs.put("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
 
                         List<String> initCommands = new ArrayList<>();
-
                         switch (language) {
                             case PYTHON:
                                 initCommands.addAll(
@@ -187,49 +127,23 @@ public class CodeService {
                             default:
                                 break;
                         }
+                        buildArgs.put("INIT_COMMAND", String.join(" && ", initCommands));
 
-                        buildImageCmd.withBuildArg("INIT_COMMAND", String.join(" && ", initCommands));
-
-                        BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
-                        buildImageCmd.exec(buildImageResultCallback);
-                        String imageId = buildImageResultCallback.awaitImageId();
+                        String imageId = dockerService.buildImage(tmpFile, imageName, buildArgs);
                         logInfo(language, "Built image with id " + imageId);
-                        logAtLevel(language,
-                                "Image build log: " + System.lineSeparator()
-                                        + String.join(System.lineSeparator(),
-                                                buildImageResultCallback.getBuildImageSteps()),
-                                Level.TRACE);
                     }
                 }
 
                 // create container from sandbox image
                 logInfo(language, "Creating container");
-                CreateContainerResponse createContainerResponse = dockerClient
-                        .createContainerCmd(imageName)
-                        .withName(getContainerName(language))
-                        .withAttachStdout(true)
-                        .withAttachStderr(true)
-                        .withUser(imageUser)
-                        .exec();
-                String containerId = createContainerResponse.getId();
+                String containerId = dockerService.createContainer(imageName, getContainerName(language), imageUser);
 
                 // populate language-container map
                 languageContainerIdMap.put(language, containerId);
 
                 // container start
                 logInfo(language, "Starting container");
-                dockerClient
-                        .startContainerCmd(containerId)
-                        .exec();
-
-                // log stdout and stderr
-                dockerClient
-                        .logContainerCmd(containerId)
-                        .withStdErr(true)
-                        .withStdOut(true)
-                        .withFollowStream(true)
-                        .exec(new LoggingResultCallback(language));
-
+                dockerService.startContainer(containerId, new LoggingResultCallback(language));
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
@@ -244,7 +158,7 @@ public class CodeService {
         parallellyExecuteForEachLanguage(language -> {
             logInfo(language, "Stopping and removing container");
             String containerId = languageContainerIdMap.get(language);
-            cleanContainer(containerId);
+            dockerService.cleanContainer(containerId);
         });
     }
 
@@ -272,7 +186,7 @@ public class CodeService {
             for (StoredFile storedFile : attachments) {
                 Files.copy(fileService.getFilePath(storedFile), LOCAL_INPUT_PATH.resolve(storedFile.relativePath()));
             }
-            copyToContainer(containerId, LOCAL_INPUT_PATH, REMOTE_IO_PATH);
+            dockerService.copyToContainer(containerId, LOCAL_INPUT_PATH, REMOTE_IO_PATH);
 
             // prepare execution environment
             List<Dependency> dependencies = Arrays.asList(request.dependencies());
@@ -294,7 +208,7 @@ public class CodeService {
                 case JAVA:
                     break;
             }
-            runInContainer(containerId, new LoggingResultCallback(language), prepareCommands);
+            dockerService.runInContainer(containerId, new LoggingResultCallback(language), prepareCommands);
 
             // execute code and collect output
             List<String> commands = new ArrayList<>();
@@ -311,7 +225,7 @@ public class CodeService {
                     break;
             }
             CollectingResultCallback collectingResultCallback = new CollectingResultCallback();
-            runInContainer(containerId, collectingResultCallback, commands);
+            dockerService.runInContainer(containerId, collectingResultCallback, commands);
 
             // collect and store produced files
             List<StoredFile> outputFiles = saveOutput(sessionId, containerId);
@@ -325,28 +239,6 @@ public class CodeService {
             throw new RuntimeException(e);
         }
 
-    }
-
-    /**
-     * Callback to collect image build log
-     */
-    private class BuildSandboxImageResultCallback extends BuildImageResultCallback {
-
-        private List<String> buildImageSteps = new ArrayList<>();
-
-        public List<String> getBuildImageSteps() {
-            return buildImageSteps;
-        }
-
-        @Override
-        public void onNext(BuildResponseItem item) {
-            super.onNext(item);
-            String itemStream = item.getStream();
-            if (StringUtils.hasText(itemStream)) {
-                itemStream = itemStream.replaceAll("[\r\n]+$", ""); // Remove trailing newlines
-                buildImageSteps.add(itemStream);
-            }
-        }
     }
 
     /**
@@ -429,57 +321,12 @@ public class CodeService {
         return new String(frame.getPayload(), StandardCharsets.UTF_8);
     };
 
-    private void cleanContainer(String containerId) {
-        Container container = dockerClient
-                .listContainersCmd()
-                .withShowAll(true)
-                .withIdFilter(List.of(containerId))
-                .exec()
-                .get(0);
-        if (container.getState().equalsIgnoreCase("running")) {
-            dockerClient.stopContainerCmd(containerId).exec();
-        }
-        dockerClient.removeContainerCmd(containerId).exec();
-
-    }
-
-    private void runInContainer(String containerId, ResultCallback.Adapter<Frame> resultCallback, List<String> commands)
-            throws InterruptedException {
-        // prepend init and build command
-        commands.add(0, "export PATH=\"$HOME/.local/bin:$PATH\"");
-        ExecCreateCmdResponse createPrepareCommandResponse = dockerClient
-                .execCreateCmd(containerId)
-                .withAttachStdout(true)
-                .withAttachStderr(true)
-                .withCmd("sh", "-l", "-c", String.join(" && ", commands))
-                .exec();
-
-        // run command
-        dockerClient
-                .execStartCmd(createPrepareCommandResponse.getId())
-                .exec(resultCallback)
-                .awaitCompletion();
-    }
-
-    private void copyToContainer(String containerId, Path localPath, String remotePath) throws IOException {
-        dockerClient
-                .copyArchiveToContainerCmd(containerId)
-                .withHostResource(localPath.toString())
-                .withRemotePath(remotePath)
-                .withCopyUIDGID(true)
-                .exec();
-    }
-
     private List<StoredFile> saveOutput(String sessionId, String containerId) throws IOException {
 
         List<StoredFile> storedFiles = new ArrayList<>();
 
-        InputStream is = dockerClient
-                .copyArchiveFromContainerCmd(containerId, REMOTE_OUTPUT_PATH)
-                .exec();
-
         // untar files preserving directory structure
-        try (TarArchiveInputStream tais = new TarArchiveInputStream(is)) {
+        try (TarArchiveInputStream tais = dockerService.copyArchiveFromContainer(containerId, REMOTE_OUTPUT_PATH)) {
             TarArchiveEntry entry;
             String rootDirName = null;
 
@@ -521,41 +368,6 @@ public class CodeService {
 
     private static void logAtLevel(Language language, String message, Level level) {
         LOG.atLevel(level).log("[" + language + "] " + message);
-    }
-
-    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) throws Exception {
-        // Convert PEM strings to byte arrays
-        byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
-        byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
-        byte[] keyBytes = decodePemPrivateKey(clientKey);
-
-        // Load CA Certificate
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
-
-        // Load Client Certificate
-        Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
-
-        // Load Private Key
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
-
-        // Create a KeyStore
-        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-        keyStore.load(null, null);
-        keyStore.setCertificateEntry("ca", caCertificate);
-        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
-
-        // Create an SSLContext
-        return SSLContextBuilder.create()
-                .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, "changeit".toCharArray())
-                .build();
-    }
-
-    private static byte[] decodePemPrivateKey(String pem) {
-        String key = pem.replaceAll("-----.*?-----", "").replaceAll("\\s", "");
-        return Base64.getDecoder().decode(key);
     }
 
 }
