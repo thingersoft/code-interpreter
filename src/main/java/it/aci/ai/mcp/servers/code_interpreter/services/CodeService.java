@@ -109,10 +109,6 @@ public class CodeService {
     @PostConstruct
     private void init() throws InterruptedException, IOException {
 
-        LOG.info("CA CERT: \n" + dockerConfig.getCaCert());
-        LOG.info("CLIENT CERT: \n" + dockerConfig.getClientCert());
-        LOG.info("CLIENT KEY: \n" + dockerConfig.getClientKey());
-
         // init docker client
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
                 .withDockerHost(dockerConfig.getHost())
