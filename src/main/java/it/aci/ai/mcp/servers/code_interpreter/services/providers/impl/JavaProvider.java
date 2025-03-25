@@ -5,7 +5,6 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,6 +20,9 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import org.springframework.ai.azure.openai.AzureOpenAiChatOptions;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -61,8 +63,7 @@ public class JavaProvider extends LanguageProvider {
         }
 
         // infer external dependencies
-        Set<String> imports = extractImports(sourceCode);
-        Set<MavenDependency> dependencies = findMavenDependencies(imports);
+        Set<MavenDependency> dependencies = inferDependencies(sourceCode);
         String pom = generatePomXml(dependencies);
 
         // write maven project to workspace
@@ -83,31 +84,6 @@ public class JavaProvider extends LanguageProvider {
     public List<String> getExecutionCommands(Path workspace) {
         return List.of("java -jar target/" + WRAPPER_PROJECT_ARTIFACT_ID + "-" + WRAPPER_PROJECT_VERSION
                 + "-jar-with-dependencies.jar");
-    }
-
-    /**
-     * Extracts import statements from the given Java source code string.
-     */
-    private static Set<String> extractImports(String sourceCode) {
-        Set<String> imports = new HashSet<>();
-        Pattern importPattern = Pattern.compile("import\\s+([\\w\\.]+);");
-        Matcher matcher = importPattern.matcher(sourceCode);
-
-        while (matcher.find()) {
-            String fullImport = matcher.group(1);
-            if (!fullImport.startsWith("java.") && !fullImport.startsWith("javax.")) { // Ignore standard libraries
-                imports.add(fullImport);
-            }
-        }
-        return imports;
-    }
-
-    private static Set<MavenDependency> findMavenDependencies(Set<String> imports) {
-        Set<MavenDependency> dependencies = new HashSet<>();
-
-        // TODO
-
-        return dependencies;
     }
 
     /**
@@ -140,6 +116,7 @@ public class JavaProvider extends LanguageProvider {
                 appendTextElement(doc, dependency, "groupId", dep.groupId());
                 appendTextElement(doc, dependency, "artifactId", dep.artifactId());
                 appendTextElement(doc, dependency, "version", dep.version());
+                appendTextElement(doc, dependency, "type", dep.type());
                 dependenciesElement.appendChild(dependency);
             }
 
@@ -198,7 +175,23 @@ public class JavaProvider extends LanguageProvider {
         parent.appendChild(element);
     }
 
-    private static record MavenDependency(String groupId, String artifactId, String version) {
+    protected Set<MavenDependency> inferDependencies(String sourceCode) {
+
+        return ChatClient.create(chatModel)
+                .prompt()
+                .user(u -> u
+                        .text("Infer the dependencies that need to be externally retrieved in order to run the following code:\n ```\n{sourceCode}\n```")
+                        .param("sourceCode", sourceCode))
+                .options(AzureOpenAiChatOptions.builder()
+                        .temperature(0.0)
+                        .build())
+                .call()
+                .entity(new ParameterizedTypeReference<Set<MavenDependency>>() {
+                });
+
+    }
+
+    public static record MavenDependency(String groupId, String artifactId, String version, String type) {
     }
 
 }

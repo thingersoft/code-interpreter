@@ -26,6 +26,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.FileSystemUtils;
+import org.springframework.util.StringUtils;
 
 import com.github.dockerjava.api.model.Container;
 
@@ -194,12 +195,11 @@ public class CodeService {
             prepareCommands.addAll(languageProvider.getPrepareExecutionCommands(workspaceFolder));
             LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, true,
                     language.name());
-            // TODO return errors raised by prepare phase (avoid stderr from pipreqs)
-            // if (StringUtils.hasText(prepareResult.getStdErr())) {
-            //
-            // return new ExecuteCodeResult("", prepareResult.getStdErr(), sessionId,
-            // List.of());
-            // }
+            // return early for errors raised by prepare phase
+            if (StringUtils.hasText(prepareResult.getStdErr())) {
+                return new ExecuteCodeResult("", prepareResult.getStdErr(), sessionId,
+                        List.of());
+            }
 
             // execute code and collect output
             List<String> commands = new ArrayList<>();

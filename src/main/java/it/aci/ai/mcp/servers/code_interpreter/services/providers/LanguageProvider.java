@@ -9,9 +9,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
+
 public abstract class LanguageProvider {
 
     public static final String IMAGE_USER = "intepreter";
+
+    @Autowired
+    protected ChatModel chatModel;
 
     public abstract String getFromImage();
 
