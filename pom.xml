@@ -9,13 +9,13 @@
 	</parent>
 	<groupId>it.aci.ai.mcp.servers</groupId>
 	<artifactId>code-interpreter</artifactId>
-	<version>0.3.0</version>
+	<version>0.3.1-SNAPSHOT</version>
 	<name>code-interpreter</name>
 	<description>A Model Context Protocol server for sandboxed AI code execution</description>
 
 	<scm>
 		<developerConnection>scm:git:https://gitlab.informatica.aci.it/mobile/aigpt/aigpt-code-interpreter.git</developerConnection>
-		<tag>v0.3.0</tag>
+		<tag>v0.1.2</tag>
 	</scm>
 
 	<properties>
