@@ -38,8 +38,18 @@ public class FileService {
         String fileId = AppUtils.generateFileId();
         Path storagePath = getStoragePath(sessionId, storedFileType);
         try {
+            // sanitize and validate the file path to prevent path traversal
             Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
+            Path targetPath = storagePath.resolve(relativePath).normalize();
+            if (!targetPath.startsWith(storagePath)) {
+                throw new IllegalArgumentException("Invalid file path: " + relativePath);
+            }
+            // ensure parent directories exist
+            Path parent = targetPath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Path filePath = Files.write(targetPath, fileContent);
             StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
@@ -84,7 +94,8 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
+            // log at debug level to avoid exposing user-controlled identifiers in production logs
+            LOG.debug("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
         }
         return storedFiles;
     }
