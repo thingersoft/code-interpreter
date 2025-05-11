@@ -246,9 +246,8 @@ public class CodeService {
 
             while ((entry = tais.getNextTarEntry()) != null) {
                 if (entry.isDirectory()) {
-                    if (rootDirName == null) {
+                    if (rootDirName == null)
                         rootDirName = entry.getName().split("/")[0]; // Capture the root directory name
-                    }
                     continue;
                 }
 

@@ -31,6 +31,12 @@ import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvide
 
 @Service
 public class JavaProvider extends LanguageProvider {
+    /**
+     * Constructor injection for ChatModel
+     */
+    public JavaProvider(org.springframework.ai.chat.model.ChatModel chatModel) {
+        super(chatModel);
+    }
 
     private static final String MAIN_CLASS_NAME = "Main";
     private static final String WRAPPER_PROJECT_VERSION = "1.0-SNAPSHOT";
@@ -93,6 +99,12 @@ public class JavaProvider extends LanguageProvider {
 
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            // Prevent XXE
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.newDocument();
 
@@ -156,6 +168,9 @@ public class JavaProvider extends LanguageProvider {
                     .appendChild(pluginElement);
 
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            // Secure TransformerFactory against XXE
+            transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);

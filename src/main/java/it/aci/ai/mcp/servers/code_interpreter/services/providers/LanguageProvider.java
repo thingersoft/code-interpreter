@@ -10,14 +10,17 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Autowired;
+// Constructor injection preferred over field injection
 
 public abstract class LanguageProvider {
 
     public static final String IMAGE_USER = "intepreter";
 
-    @Autowired
-    protected ChatModel chatModel;
+    protected final ChatModel chatModel;
+
+    public LanguageProvider(ChatModel chatModel) {
+        this.chatModel = chatModel;
+    }
 
     public abstract String getFromImage();
 
@@ -29,7 +32,7 @@ public abstract class LanguageProvider {
 
     public void prepareWorkspace(Path workspace, String sourceCode) throws IOException {
         Files.writeString(workspace.resolve(getSourceFileName()), sourceCode, StandardOpenOption.CREATE);
-    };
+    }
 
     public abstract List<String> getPrepareExecutionCommands(Path workspace);
 

@@ -140,7 +140,7 @@ public class ExecuteResponse {
 
   public ExecuteResponse addFilesItem(FileRef filesItem) {
     if (this.files == null) {
-      this.files = new ArrayList<FileRef>();
+      this.files = new ArrayList<>();
     }
     this.files.add(filesItem);
     return this;
