@@ -205,6 +205,7 @@ public class DockerService {
         return new TarArchiveInputStream(is);
     }
 
+    private static final char[] KEYSTORE_PASSWORD = new char[0];
     private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) throws Exception {
         // Convert PEM strings to byte arrays
         byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
@@ -226,12 +227,12 @@ public class DockerService {
         KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         keyStore.load(null, null);
         keyStore.setCertificateEntry("ca", caCertificate);
-        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
+        keyStore.setKeyEntry("client", privateKey, KEYSTORE_PASSWORD, new Certificate[] { clientCertificate });
 
         // Create an SSLContext
         return SSLContextBuilder.create()
                 .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, "changeit".toCharArray())
+                .loadKeyMaterial(keyStore, KEYSTORE_PASSWORD)
                 .build();
     }
 
