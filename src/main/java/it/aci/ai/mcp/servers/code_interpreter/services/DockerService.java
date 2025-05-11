@@ -71,15 +71,10 @@ public class DockerService {
                 .dockerHost(config.getDockerHost());
         if (dockerConfig.isTls()) {
             try {
-                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
-                        dockerConfig.getClientKey());
-                SSLConfig sslConfig = new SSLConfig() {
-                    @Override
-                    public SSLContext getSSLContext() {
-                        return sslContext;
-                    }
-                };
-                builder = builder.sslConfig(sslConfig);
+                SSLContext sslContext = createSSLContext(
+                        dockerConfig.getCaCert(), dockerConfig.getClientCert(), dockerConfig.getClientKey());
+                // Use lambda instead of anonymous class for SSLConfig
+                builder = builder.sslConfig(() -> sslContext);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -301,7 +296,7 @@ public class DockerService {
 
         private String frameToString(Frame frame) {
             return new String(frame.getPayload(), StandardCharsets.UTF_8);
-        };
+        }
 
         public String getStdOut() {
             return String.join("", outputFrames);

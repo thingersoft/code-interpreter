@@ -39,7 +39,16 @@ public class FileService {
         Path storagePath = getStoragePath(sessionId, storedFileType);
         try {
             Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
+            // Prevent path traversal: resolve and normalize
+            Path targetPath = storagePath.resolve(relativePath).normalize();
+            if (!targetPath.startsWith(storagePath)) {
+                throw new IllegalArgumentException("Invalid file path: " + relativePath);
+            }
+            // Ensure parent directories exist
+            if (targetPath.getParent() != null) {
+                Files.createDirectories(targetPath.getParent());
+            }
+            Path filePath = Files.write(targetPath, fileContent);
             StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
