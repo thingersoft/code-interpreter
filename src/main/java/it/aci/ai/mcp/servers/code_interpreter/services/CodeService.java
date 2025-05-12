@@ -21,6 +21,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
@@ -141,7 +142,7 @@ public class CodeService {
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw new CodeInterpreterException("Failed to initialize container for language " + language, e);
             }
         });
 
@@ -215,7 +216,7 @@ public class CodeService {
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
         } catch (InterruptedException | IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to execute code for request " + request, e);
         }
 
     }
@@ -227,7 +228,7 @@ public class CodeService {
                 languages.parallelStream().forEach(consumer);
             }).get();
         } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Parallel execution failed", e);
         }
     }
 

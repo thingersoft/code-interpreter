@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 import org.springframework.stereotype.Service;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
 import org.springframework.util.StringUtils;
 
 import com.github.dockerjava.api.DockerClient;
@@ -81,7 +82,7 @@ public class DockerService {
                 };
                 builder = builder.sslConfig(sslConfig);
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw new CodeInterpreterException("Failed to initialize Docker SSL context", e);
             }
         }
         dockerClient = DockerClientImpl.getInstance(config, builder.build());
@@ -291,7 +292,7 @@ public class DockerService {
                     errorFrames.add(frameToString(frame));
                     yield Level.ERROR;
                 default:
-                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
+                    throw new CodeInterpreterException("Unknown stream type: " + frame.getStreamType());
             };
 
             if (log) {
@@ -301,7 +302,7 @@ public class DockerService {
 
         private String frameToString(Frame frame) {
             return new String(frame.getPayload(), StandardCharsets.UTF_8);
-        };
+        }
 
         public String getStdOut() {
             return String.join("", outputFrames);

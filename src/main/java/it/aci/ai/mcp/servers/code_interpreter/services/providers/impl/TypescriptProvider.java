@@ -11,11 +11,21 @@ import org.springframework.ai.azure.openai.AzureOpenAiChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
+import org.springframework.ai.chat.model.ChatModel;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
 
 import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvider;
 
 @Service
 public class TypescriptProvider extends LanguageProvider {
+    /**
+     * Constructs a TypescriptProvider with injected ChatModel.
+     *
+     * @param chatModel the chat model for dependency inference
+     */
+    public TypescriptProvider(org.springframework.ai.chat.model.ChatModel chatModel) {
+        super(chatModel);
+    }
 
     @Override
     public String getFromImage() {
@@ -37,7 +47,7 @@ public class TypescriptProvider extends LanguageProvider {
                 prepareExecutionCommands.add("npm install --no-warnings " + String.join(" ", dependencies));
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to infer TypeScript dependencies", e);
         }
         return prepareExecutionCommands;
     }

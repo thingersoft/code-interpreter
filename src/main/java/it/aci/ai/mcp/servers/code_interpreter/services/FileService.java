@@ -10,6 +10,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
 import org.springframework.transaction.annotation.Transactional;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
@@ -44,7 +45,7 @@ public class FileService {
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to store file '" + relativePath + "' for session '" + sessionId + "'", e);
         }
     }
 
@@ -59,7 +60,7 @@ public class FileService {
         try {
             Files.delete(getFilePath(storedFile));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to delete file with id '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
         LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
@@ -71,7 +72,7 @@ public class FileService {
         try {
             return Files.readAllBytes(filePath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to read file with id '" + fileId + "'", e);
         }
     }
 
