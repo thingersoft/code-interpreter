@@ -13,12 +13,12 @@ public record ExecuteCodeRequest(Language language,
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        // Use record pattern to destructure the compared object
-        if (!(o instanceof ExecuteCodeRequest(var otherLanguage, var otherCode, var otherSessionId, var otherDependencies))) return false;
-        return language == otherLanguage
-                && Objects.equals(code, otherCode)
-                && Objects.equals(sessionId, otherSessionId)
-                && Arrays.equals(dependencies, otherDependencies);
+        if (!(o instanceof ExecuteCodeRequest)) return false;
+        ExecuteCodeRequest other = (ExecuteCodeRequest) o;
+        return language == other.language
+                && Objects.equals(code, other.code)
+                && Objects.equals(sessionId, other.sessionId)
+                && Arrays.equals(dependencies, other.dependencies);
     }
 
     @Override

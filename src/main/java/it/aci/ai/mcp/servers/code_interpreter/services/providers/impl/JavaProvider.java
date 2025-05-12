@@ -124,7 +124,13 @@ public class JavaProvider extends LanguageProvider {
             factory.setFeature("http://apache.org/xml/features/nonvalidating/load-dtd-grammar", false);
             DocumentBuilder builder = factory.newDocumentBuilder();
             // Disallow external entity expansion by providing an empty entity
-            builder.setEntityResolver((publicId, systemId) -> new InputSource(new StringReader("")));
+            builder.setEntityResolver(new EntityResolver() {
+                @Override
+                public InputSource resolveEntity(String publicId, String systemId) throws SAXException, IOException {
+                    // Block external entity resolution
+                    return new InputSource(new StringReader(""));
+                }
+            });
             Document doc = builder.newDocument();
 
             Element project = doc.createElement("project");

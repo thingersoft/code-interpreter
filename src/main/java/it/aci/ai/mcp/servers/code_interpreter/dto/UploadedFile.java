@@ -8,10 +8,10 @@ public record UploadedFile(String name, byte[] content) {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        // Use record pattern to destructure the compared object
-        if (!(o instanceof UploadedFile(var otherName, var otherContent))) return false;
-        return Objects.equals(name, otherName)
-                && Arrays.equals(content, otherContent);
+        if (!(o instanceof UploadedFile)) return false;
+        UploadedFile other = (UploadedFile) o;
+        return Objects.equals(name, other.name)
+                && Arrays.equals(content, other.content);
     }
 
     @Override
