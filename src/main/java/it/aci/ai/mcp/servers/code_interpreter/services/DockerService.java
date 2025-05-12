@@ -292,7 +292,10 @@ public class DockerService {
                     errorFrames.add(frameToString(frame));
                     yield Level.ERROR;
                 default:
-                    throw new CodeInterpreterException("Unknown stream type: " + frame.getStreamType());
+                    // Provide a Throwable to the exception constructor instead of a raw String
+                    throw new CodeInterpreterException(
+                        new IllegalStateException("Unknown stream type: " + frame.getStreamType())
+                    );
             };
 
             if (log) {
