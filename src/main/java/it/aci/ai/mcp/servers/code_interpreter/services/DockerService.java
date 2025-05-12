@@ -63,7 +63,7 @@ public class DockerService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
         // init docker client
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
                 .withDockerHost(dockerConfig.getHost())
@@ -72,14 +72,14 @@ public class DockerService {
                 .dockerHost(config.getDockerHost());
         if (dockerConfig.isTls()) {
             try {
-                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
-                        dockerConfig.getClientKey());
-                SSLConfig sslConfig = new SSLConfig() {
-                    @Override
-                    public SSLContext getSSLContext() {
-                        return sslContext;
-                    }
-                };
+                // Create SSL context using configured keystore password
+                SSLContext sslContext = createSSLContext(
+                        dockerConfig.getCaCert(),
+                        dockerConfig.getClientCert(),
+                        dockerConfig.getClientKey(),
+                        dockerConfig.getKeyStorePassword());
+                // Provide SSLContext via lambda for SSLConfig
+                SSLConfig sslConfig = () -> sslContext;
                 builder = builder.sslConfig(sslConfig);
             } catch (Exception e) {
                 throw new CodeInterpreterException("Failed to initialize Docker SSL context", e);
@@ -130,14 +130,16 @@ public class DockerService {
         BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
         buildImageCmd.exec(buildImageResultCallback);
         String imageId = buildImageResultCallback.awaitImageId();
-        LOG.trace(
-                "Image " + imageId + " build log: " + System.lineSeparator()
-                        + String.join(System.lineSeparator(),
-                                buildImageResultCallback.getBuildImageSteps()));
+        // Log build steps only if trace is enabled to avoid unnecessary string concatenation
+        if (LOG.isTraceEnabled()) {
+            String buildLog = String.join(System.lineSeparator(), buildImageResultCallback.getBuildImageSteps());
+            LOG.trace("Image {} build log: {}{}", imageId, System.lineSeparator(), buildLog);
+        }
 
         return imageId;
     }
 
+    @SuppressWarnings("resource")
     public String createContainer(String imageName, String containerName, String user) {
         CreateContainerResponse createContainerResponse = dockerClient
                 .createContainerCmd(imageName)
@@ -190,7 +192,7 @@ public class DockerService {
         return resultCallback;
     }
 
-    public void copyToContainer(String containerId, Path localPath, String remotePath) throws IOException {
+    public void copyToContainer(String containerId, Path localPath, String remotePath) {
         dockerClient
                 .copyArchiveToContainerCmd(containerId)
                 .withHostResource(localPath.toString())
@@ -206,7 +208,8 @@ public class DockerService {
         return new TarArchiveInputStream(is);
     }
 
-    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) throws Exception {
+    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey,
+            String keyStorePassword) throws Exception {
         // Convert PEM strings to byte arrays
         byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
         byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
@@ -227,12 +230,14 @@ public class DockerService {
         KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         keyStore.load(null, null);
         keyStore.setCertificateEntry("ca", caCertificate);
-        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
+        // Use configured keystore password
+        keyStore.setKeyEntry("client", privateKey,
+                keyStorePassword.toCharArray(), new Certificate[] { clientCertificate });
 
         // Create an SSLContext
         return SSLContextBuilder.create()
                 .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, "changeit".toCharArray())
+                .loadKeyMaterial(keyStore, keyStorePassword.toCharArray())
                 .build();
     }
 
@@ -284,8 +289,7 @@ public class DockerService {
         public void onNext(Frame frame) {
 
             Level logLevel = switch (frame.getStreamType()) {
-                case STDOUT:
-                case RAW:
+                case STDOUT, RAW:
                     outputFrames.add(frameToString(frame));
                     yield Level.TRACE;
                 case STDERR:

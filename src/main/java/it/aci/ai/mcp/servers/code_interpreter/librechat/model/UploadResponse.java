@@ -83,7 +83,7 @@ public class UploadResponse {
 
   public UploadResponse addFilesItem(FileObject filesItem) {
     if (this.files == null) {
-      this.files = new ArrayList<FileObject>();
+      this.files = new ArrayList<>();
     }
     this.files.add(filesItem);
     return this;

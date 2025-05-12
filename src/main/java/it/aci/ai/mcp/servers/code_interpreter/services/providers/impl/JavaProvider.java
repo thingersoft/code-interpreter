@@ -30,7 +30,6 @@ import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
-import org.springframework.ai.chat.model.ChatModel;
 import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvider;
 
 @Service
@@ -115,6 +114,9 @@ public class JavaProvider extends LanguageProvider {
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             factory.setXIncludeAware(false);
             factory.setExpandEntityReferences(false);
+            // Prevent external DTDs and schemas
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
             DocumentBuilder builder = factory.newDocumentBuilder();
             // Disallow external entity expansion
             builder.setEntityResolver((publicId, systemId) -> new InputSource(new StringReader("")));

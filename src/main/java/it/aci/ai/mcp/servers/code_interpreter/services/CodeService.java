@@ -227,9 +227,7 @@ public class CodeService {
     private void parallellyExecuteForEachLanguage(Consumer<Language> consumer) {
         List<Language> languages = Arrays.asList(Language.values());
         try (ForkJoinPool threadPool = new ForkJoinPool(languages.size())) {
-            threadPool.submit(() -> {
-                languages.parallelStream().forEach(consumer);
-            }).get();
+            threadPool.submit(() -> languages.parallelStream().forEach(consumer)).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CodeInterpreterException("Parallel execution interrupted", e);

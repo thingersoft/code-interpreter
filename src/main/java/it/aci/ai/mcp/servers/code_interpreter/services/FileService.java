@@ -39,8 +39,14 @@ public class FileService {
         String fileId = AppUtils.generateFileId();
         Path storagePath = getStoragePath(sessionId, storedFileType);
         try {
-            Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
+            // Prevent path traversal by normalizing and validating the target path
+            Path target = storagePath.resolve(relativePath).normalize();
+            if (!target.startsWith(storagePath)) {
+                throw new CodeInterpreterException("Invalid file path: " + relativePath);
+            }
+            // Ensure parent directories exist
+            Files.createDirectories(target.getParent());
+            Path filePath = Files.write(target, fileContent);
             StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
@@ -63,7 +69,8 @@ public class FileService {
             throw new CodeInterpreterException("Failed to delete file with id '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
-        LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
+        // Log deletion without exposing user-controlled identifiers
+        LOG.info("Deleted file");
     }
 
     public byte[] downloadFile(String fileId) {
@@ -85,7 +92,7 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
+            LOG.info("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
         }
         return storedFiles;
     }
