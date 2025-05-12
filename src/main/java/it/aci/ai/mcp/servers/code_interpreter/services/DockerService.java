@@ -27,6 +27,9 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 import org.springframework.stereotype.Service;
 import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
+import it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import org.springframework.util.StringUtils;
 
 import com.github.dockerjava.api.DockerClient;
@@ -208,36 +211,40 @@ public class DockerService {
     }
 
     private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey,
-            String keyStorePassword) throws Exception {
-        // Convert PEM strings to byte arrays
-        byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
-        byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
-        byte[] keyBytes = decodePemPrivateKey(clientKey);
+            String keyStorePassword) {
+        try {
+            // Convert PEM strings to byte arrays
+            byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
+            byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
+            byte[] keyBytes = decodePemPrivateKey(clientKey);
 
-        // Load CA Certificate
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
+            // Load CA Certificate
+            CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+            Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
 
-        // Load Client Certificate
-        Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
+            // Load Client Certificate
+            Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
 
-        // Load Private Key
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
+            // Load Private Key
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
 
-        // Create a KeyStore
-        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-        keyStore.load(null, null);
-        keyStore.setCertificateEntry("ca", caCertificate);
-        // Use configured keystore password
-        keyStore.setKeyEntry("client", privateKey,
-                keyStorePassword.toCharArray(), new Certificate[] { clientCertificate });
+            // Create a KeyStore
+            KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keyStore.load(null, null);
+            keyStore.setCertificateEntry("ca", caCertificate);
+            // Use configured keystore password
+            keyStore.setKeyEntry("client", privateKey,
+                    keyStorePassword.toCharArray(), new Certificate[]{ clientCertificate });
 
-        // Create an SSLContext
-        return SSLContextBuilder.create()
-                .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, keyStorePassword.toCharArray())
-                .build();
+            // Create an SSLContext
+            return SSLContextBuilder.create()
+                    .loadTrustMaterial(keyStore, null)
+                    .loadKeyMaterial(keyStore, keyStorePassword.toCharArray())
+                    .build();
+        } catch (GeneralSecurityException | IOException e) {
+            throw new DockerServiceException("Failed to create SSL context", e);
+        }
     }
 
     private static byte[] decodePemPrivateKey(String pem) {
