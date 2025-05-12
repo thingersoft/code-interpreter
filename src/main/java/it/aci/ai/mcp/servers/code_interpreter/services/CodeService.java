@@ -119,8 +119,8 @@ public class CodeService {
                         Map<String, String> buildArgs = new HashMap<>();
                         buildArgs.put("FROM_IMAGE", languageProvider.getFromImage());
                         buildArgs.put("USER", LanguageProvider.IMAGE_USER);
-                        buildArgs.put("INPUT_PATH", REMOTE_INPUT_PATH);
-                        buildArgs.put("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
+                        buildArgs.put("INPUT_PATH", remoteInputPath);
+                        buildArgs.put("OUTPUT_PATH", remoteOutputPath);
                         buildArgs.put("INIT_COMMAND", String.join(" && ", languageProvider.getImageInitCommands()));
 
                         String imageId = dockerService.buildImage(tmpFile, imageName, buildArgs);
@@ -162,7 +162,7 @@ public class CodeService {
 
         Language language = request.language();
         String sourceCode = request.code();
-        Path workspaceFolder = LOCAL_INPUT_PATH.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
+        Path workspaceFolder = localInputPath.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
         LanguageProvider languageProvider = getLanguageProvider(language);
 
         String sessionId = request.sessionId() == null ? AppUtils.generateSessionId() : request.sessionId();
