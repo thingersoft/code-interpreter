@@ -28,7 +28,6 @@ public class DockerConfig {
         this.clientKey = clientKey;
         // keyStorePassword can be set via setter or default to empty
     }
-    }
 
     public boolean isTls() {
         return tls;

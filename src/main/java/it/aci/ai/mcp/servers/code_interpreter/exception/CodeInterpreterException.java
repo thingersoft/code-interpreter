@@ -5,6 +5,15 @@ package it.aci.ai.mcp.servers.code_interpreter.exception;
  */
 public class CodeInterpreterException extends RuntimeException {
     /**
+     * Constructs a new CodeInterpreterException with the specified detail message.
+     *
+     * @param message the detail message
+     */
+    public CodeInterpreterException(String message) {
+        super(message);
+    }
+
+    /**
      * Constructs a new CodeInterpreterException with the specified detail message and cause.
      *
      * @param message the detail message
