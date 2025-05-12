@@ -2,7 +2,6 @@ package it.aci.ai.mcp.servers.code_interpreter.services;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -296,9 +295,9 @@ public class DockerService {
                     errorFrames.add(frameToString(frame));
                     yield Level.ERROR;
                 default:
-                    // Provide a Throwable to the exception constructor instead of a raw String
-                    throw new CodeInterpreterException(
-                        new IllegalStateException("Unknown stream type: " + frame.getStreamType())
+                    // Throw a dedicated exception for unexpected stream types
+                    throw new it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException(
+                        "Unknown stream type: " + frame.getStreamType()
                     );
             };
 

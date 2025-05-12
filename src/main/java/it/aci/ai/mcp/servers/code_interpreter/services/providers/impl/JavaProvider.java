@@ -18,6 +18,7 @@ import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
 import javax.xml.XMLConstants;
 import org.xml.sax.InputSource;
+import org.xml.sax.EntityResolver;
 import java.io.StringReader;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
@@ -118,8 +119,13 @@ public class JavaProvider extends LanguageProvider {
             factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
             factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
             DocumentBuilder builder = factory.newDocumentBuilder();
-            // Disallow external entity expansion
-            builder.setEntityResolver((publicId, systemId) -> new InputSource(new StringReader("")));
+            // Disallow external entity expansion by providing a no-op EntityResolver
+            builder.setEntityResolver(new EntityResolver() {
+                @Override
+                public InputSource resolveEntity(String publicId, String systemId) {
+                    return new InputSource(new StringReader(""));
+                }
+            });
             Document doc = builder.newDocument();
 
             Element project = doc.createElement("project");

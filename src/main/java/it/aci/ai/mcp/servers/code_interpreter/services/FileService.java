@@ -28,6 +28,10 @@ public class FileService {
     private final StoredFileRepository storedFileRepository;
     private final AppConfig appConfig;
 
+    // Self-injection for proper transactional behavior on internal calls
+    @org.springframework.beans.factory.annotation.Autowired
+    private FileService self;
+
     public FileService(StoredFileRepository storedFileRepository, AppConfig appConfig) {
         this.storedFileRepository = storedFileRepository;
         this.appConfig = appConfig;
@@ -90,7 +94,8 @@ public class FileService {
         for (UploadedFile uploadedFile : uploadedFiles) {
             String filename = uploadedFile.name();
             byte[] fileContent = uploadedFile.content();
-            StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
+            // Use injected self to ensure @Transactional on storeFile is applied
+            StoredFile storedFile = self.storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
             LOG.info("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
         }

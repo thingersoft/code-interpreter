@@ -51,13 +51,13 @@ public class CodeService {
 
     private static final String INPUT_FOLDER_NAME = "input";
 
-    private static Path localInputPath;
-    
-    private static String remoteIoPath;
-    private static String remoteInputPath;
-    private static String remoteOutputPath;
-    
-    private static String cdToInputCommand;
+    private final Path localInputPath;
+
+    private final String remoteIoPath;
+    private final String remoteInputPath;
+    private final String remoteOutputPath;
+
+    private final String cdToInputCommand;
 
     private Map<Language, String> languageContainerIdMap = new EnumMap<>(Language.class);
 
@@ -73,11 +73,12 @@ public class CodeService {
         this.buildProperties = buildProperties;
         this.applicationContext = applicationContext;
 
-        remoteIoPath = appConfig.getRemoteIoPath();
-        remoteInputPath = remoteIoPath + "/" + INPUT_FOLDER_NAME;
-        localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
-        remoteOutputPath = remoteIoPath + "/output";
-        cdToInputCommand = "cd " + remoteInputPath;
+        this.remoteIoPath = appConfig.getRemoteIoPath();
+        // Construct I/O paths for container execution
+        this.remoteInputPath = this.remoteIoPath + "/" + INPUT_FOLDER_NAME;
+        this.remoteOutputPath = this.remoteIoPath + "/output";
+        this.localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
+        this.cdToInputCommand = "cd " + this.remoteInputPath;
     }
 
     private LanguageProvider getLanguageProvider(Language language) {
