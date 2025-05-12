@@ -75,7 +75,8 @@ public class LibreChatApiController {
                             try {
                                 return new UploadedFile(file.getOriginalFilename(), file.getBytes());
                             } catch (IOException e) {
-                                throw new RuntimeException(e);
+                                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException(
+                                        "Failed to read uploaded file '" + file.getOriginalFilename() + "'", e);
                             }
                         })
                         .toList());
@@ -96,15 +97,10 @@ public class LibreChatApiController {
     public ExecuteResponse executeCode(@RequestBody ExecuteRequest executeRequest) {
 
         Language language = switch (executeRequest.getLang()) {
-            case PY:
-                yield Language.PYTHON;
-            case JAVA:
-                yield Language.JAVA;
-            case JS:
-            case TS:
-                yield Language.TYPESCRIPT;
-            default:
-                throw new IllegalArgumentException("Unsupported language: " + executeRequest.getLang());
+            case PY -> Language.PYTHON;
+            case JAVA -> Language.JAVA;
+            case JS, TS -> Language.TYPESCRIPT;
+            default -> throw new IllegalArgumentException("Unsupported language: " + executeRequest.getLang());
         };
 
         String sessionId = null;

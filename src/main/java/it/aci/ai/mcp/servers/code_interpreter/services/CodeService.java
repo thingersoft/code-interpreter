@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +22,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
@@ -49,15 +51,15 @@ public class CodeService {
 
     private static final String INPUT_FOLDER_NAME = "input";
 
-    private static Path LOCAL_INPUT_PATH;
+    private final Path localInputPath;
 
-    private static String REMOTE_IO_PATH;
-    private static String REMOTE_INPUT_PATH;
-    private static String REMOTE_OUTPUT_PATH;
+    private final String remoteIoPath;
+    private final String remoteInputPath;
+    private final String remoteOutputPath;
 
-    private static String CD_TO_INPUT_COMMAND;
+    private final String cdToInputCommand;
 
-    private Map<Language, String> languageContainerIdMap = new HashMap<>();
+    private Map<Language, String> languageContainerIdMap = new EnumMap<>(Language.class);
 
     private final DockerService dockerService;
     private final FileService fileService;
@@ -71,12 +73,12 @@ public class CodeService {
         this.buildProperties = buildProperties;
         this.applicationContext = applicationContext;
 
-        REMOTE_IO_PATH = appConfig.getRemoteIoPath();
-        REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
-        LOCAL_INPUT_PATH = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
-        REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/output";
-
-        CD_TO_INPUT_COMMAND = "cd " + REMOTE_INPUT_PATH;
+        this.remoteIoPath = appConfig.getRemoteIoPath();
+        // Construct I/O paths for container execution using Path API for portability
+        this.remoteInputPath = Path.of(this.remoteIoPath, INPUT_FOLDER_NAME).toString();
+        this.remoteOutputPath = Path.of(this.remoteIoPath, "output").toString();
+        this.localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
+        this.cdToInputCommand = "cd " + this.remoteInputPath;
     }
 
     private LanguageProvider getLanguageProvider(Language language) {
@@ -84,7 +86,7 @@ public class CodeService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
 
         // init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
@@ -118,8 +120,8 @@ public class CodeService {
                         Map<String, String> buildArgs = new HashMap<>();
                         buildArgs.put("FROM_IMAGE", languageProvider.getFromImage());
                         buildArgs.put("USER", LanguageProvider.IMAGE_USER);
-                        buildArgs.put("INPUT_PATH", REMOTE_INPUT_PATH);
-                        buildArgs.put("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
+                        buildArgs.put("INPUT_PATH", remoteInputPath);
+                        buildArgs.put("OUTPUT_PATH", remoteOutputPath);
                         buildArgs.put("INIT_COMMAND", String.join(" && ", languageProvider.getImageInitCommands()));
 
                         String imageId = dockerService.buildImage(tmpFile, imageName, buildArgs);
@@ -141,7 +143,7 @@ public class CodeService {
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw new CodeInterpreterException("Failed to initialize container for language " + language, e);
             }
         });
 
@@ -161,7 +163,7 @@ public class CodeService {
 
         Language language = request.language();
         String sourceCode = request.code();
-        Path workspaceFolder = LOCAL_INPUT_PATH.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
+        Path workspaceFolder = localInputPath.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
         LanguageProvider languageProvider = getLanguageProvider(language);
 
         String sessionId = request.sessionId() == null ? AppUtils.generateSessionId() : request.sessionId();
@@ -186,12 +188,12 @@ public class CodeService {
             languageProvider.prepareWorkspace(workspaceFolder, sourceCode);
 
             // copy local input folder to container
-            dockerService.copyToContainer(containerId, workspaceFolder, REMOTE_IO_PATH);
+            dockerService.copyToContainer(containerId, workspaceFolder, remoteIoPath);
 
             // prepare execution environment
             List<String> prepareCommands = new ArrayList<>();
-            prepareCommands.add(CD_TO_INPUT_COMMAND);
-            prepareCommands.add("rm -rf " + REMOTE_OUTPUT_PATH + "/*");
+            prepareCommands.add(cdToInputCommand);
+            prepareCommands.add("rm -rf " + remoteOutputPath + "/*");
             prepareCommands.addAll(languageProvider.getPrepareExecutionCommands(workspaceFolder));
             LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, true,
                     language.name());
@@ -203,7 +205,7 @@ public class CodeService {
 
             // execute code and collect output
             List<String> commands = new ArrayList<>();
-            commands.add(CD_TO_INPUT_COMMAND);
+            commands.add(cdToInputCommand);
             commands.addAll(languageProvider.getExecutionCommands(workspaceFolder));
             LoggingResultCallback result = dockerService.runInContainer(containerId, commands, false, null);
 
@@ -214,8 +216,11 @@ public class CodeService {
 
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
-        } catch (InterruptedException | IOException e) {
-            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CodeInterpreterException("Code execution interrupted for request " + request, e);
+        } catch (IOException e) {
+            throw new CodeInterpreterException("Failed to execute code for request " + request, e);
         }
 
     }
@@ -223,11 +228,12 @@ public class CodeService {
     private void parallellyExecuteForEachLanguage(Consumer<Language> consumer) {
         List<Language> languages = Arrays.asList(Language.values());
         try (ForkJoinPool threadPool = new ForkJoinPool(languages.size())) {
-            threadPool.submit(() -> {
-                languages.parallelStream().forEach(consumer);
-            }).get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+            threadPool.submit(() -> languages.parallelStream().forEach(consumer)).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CodeInterpreterException("Parallel execution interrupted", e);
+        } catch (ExecutionException e) {
+            throw new CodeInterpreterException("Parallel execution failed", e);
         }
     }
 
@@ -240,7 +246,7 @@ public class CodeService {
         List<StoredFile> storedFiles = new ArrayList<>();
 
         // untar files preserving directory structure
-        try (TarArchiveInputStream tais = dockerService.copyArchiveFromContainer(containerId, REMOTE_OUTPUT_PATH)) {
+        try (TarArchiveInputStream tais = dockerService.copyArchiveFromContainer(containerId, remoteOutputPath)) {
             TarArchiveEntry entry;
             String rootDirName = null;
 

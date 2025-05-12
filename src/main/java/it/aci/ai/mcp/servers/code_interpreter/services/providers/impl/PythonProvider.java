@@ -14,10 +14,19 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
+import org.springframework.ai.chat.model.ChatModel;
 import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvider;
 
 @Service
 public class PythonProvider extends LanguageProvider {
+    /**
+     * Constructs a PythonProvider with injected ChatModel.
+     *
+     * @param chatModel the chat model for dependency inference
+     */
+    public PythonProvider(ChatModel chatModel) {
+        super(chatModel);
+    }
 
     @Override
     public String getFromImage() {

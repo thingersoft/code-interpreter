@@ -10,14 +10,20 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Autowired;
 
 public abstract class LanguageProvider {
 
     public static final String IMAGE_USER = "intepreter";
+    protected final ChatModel chatModel;
 
-    @Autowired
-    protected ChatModel chatModel;
+    /**
+     * Constructor for dependency injection of chat model.
+     *
+     * @param chatModel the chat model to use for AI interactions
+     */
+    protected LanguageProvider(ChatModel chatModel) {
+        this.chatModel = chatModel;
+    }
 
     public abstract String getFromImage();
 
@@ -29,7 +35,7 @@ public abstract class LanguageProvider {
 
     public void prepareWorkspace(Path workspace, String sourceCode) throws IOException {
         Files.writeString(workspace.resolve(getSourceFileName()), sourceCode, StandardOpenOption.CREATE);
-    };
+    }
 
     public abstract List<String> getPrepareExecutionCommands(Path workspace);
 

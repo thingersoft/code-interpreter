@@ -15,6 +15,10 @@ public class DockerConfig {
     private String caCert;
     private String clientCert;
     private String clientKey;
+    /**
+     * Password for keystore and key material; should be set in configuration when TLS is enabled.
+     */
+    private String keyStorePassword = "";
 
     public DockerConfig(String host, boolean tls, String caCert, String clientCert, String clientKey) {
         this.host = host;
@@ -22,6 +26,7 @@ public class DockerConfig {
         this.caCert = caCert;
         this.clientCert = clientCert;
         this.clientKey = clientKey;
+        // keyStorePassword can be set via setter or default to empty
     }
 
     public boolean isTls() {
@@ -38,6 +43,12 @@ public class DockerConfig {
 
     public String getClientKey() {
         return clientKey;
+    }
+    public String getKeyStorePassword() {
+        return keyStorePassword;
+    }
+    public void setKeyStorePassword(String keyStorePassword) {
+        this.keyStorePassword = keyStorePassword;
     }
 
     public String getHost() {

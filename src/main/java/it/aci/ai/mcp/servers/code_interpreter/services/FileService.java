@@ -10,6 +10,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
 import org.springframework.transaction.annotation.Transactional;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.AppConfig;
@@ -27,9 +28,15 @@ public class FileService {
     private final StoredFileRepository storedFileRepository;
     private final AppConfig appConfig;
 
-    public FileService(StoredFileRepository storedFileRepository, AppConfig appConfig) {
+    // Self-injection for proper transactional behavior on internal calls
+    private final FileService self;
+
+    public FileService(StoredFileRepository storedFileRepository,
+                       AppConfig appConfig,
+                       @org.springframework.context.annotation.Lazy FileService self) {
         this.storedFileRepository = storedFileRepository;
         this.appConfig = appConfig;
+        this.self = self;
     }
 
     @Transactional
@@ -38,13 +45,19 @@ public class FileService {
         String fileId = AppUtils.generateFileId();
         Path storagePath = getStoragePath(sessionId, storedFileType);
         try {
-            Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
+            // Prevent path traversal by normalizing and validating the target path
+            Path target = storagePath.resolve(relativePath).normalize();
+            if (!target.startsWith(storagePath)) {
+                throw new CodeInterpreterException("Invalid file path: " + relativePath);
+            }
+            // Ensure parent directories exist
+            Files.createDirectories(target.getParent());
+            Path filePath = Files.write(target, fileContent);
             StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to store file '" + relativePath + "' for session '" + sessionId + "'", e);
         }
     }
 
@@ -59,10 +72,11 @@ public class FileService {
         try {
             Files.delete(getFilePath(storedFile));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to delete file with id '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
-        LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
+        // Log deletion without exposing user-controlled identifiers
+        LOG.info("Deleted file");
     }
 
     public byte[] downloadFile(String fileId) {
@@ -71,7 +85,7 @@ public class FileService {
         try {
             return Files.readAllBytes(filePath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CodeInterpreterException("Failed to read file with id '" + fileId + "'", e);
         }
     }
 
@@ -82,9 +96,10 @@ public class FileService {
         for (UploadedFile uploadedFile : uploadedFiles) {
             String filename = uploadedFile.name();
             byte[] fileContent = uploadedFile.content();
-            StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
+            // Use injected self to ensure @Transactional on storeFile is applied
+            StoredFile storedFile = self.storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
+            LOG.info("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
         }
         return storedFiles;
     }

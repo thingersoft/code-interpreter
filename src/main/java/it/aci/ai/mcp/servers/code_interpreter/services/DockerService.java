@@ -2,7 +2,6 @@ package it.aci.ai.mcp.servers.code_interpreter.services;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -27,6 +26,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 import org.springframework.stereotype.Service;
+import it.aci.ai.mcp.servers.code_interpreter.exception.CodeInterpreterException;
+import it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import org.springframework.util.StringUtils;
 
 import com.github.dockerjava.api.DockerClient;
@@ -62,7 +65,7 @@ public class DockerService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
         // init docker client
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
                 .withDockerHost(dockerConfig.getHost())
@@ -71,17 +74,17 @@ public class DockerService {
                 .dockerHost(config.getDockerHost());
         if (dockerConfig.isTls()) {
             try {
-                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
-                        dockerConfig.getClientKey());
-                SSLConfig sslConfig = new SSLConfig() {
-                    @Override
-                    public SSLContext getSSLContext() {
-                        return sslContext;
-                    }
-                };
+                // Create SSL context using configured keystore password
+                SSLContext sslContext = createSSLContext(
+                        dockerConfig.getCaCert(),
+                        dockerConfig.getClientCert(),
+                        dockerConfig.getClientKey(),
+                        dockerConfig.getKeyStorePassword());
+                // Provide SSLContext via lambda for SSLConfig
+                SSLConfig sslConfig = () -> sslContext;
                 builder = builder.sslConfig(sslConfig);
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw new CodeInterpreterException("Failed to initialize Docker SSL context", e);
             }
         }
         dockerClient = DockerClientImpl.getInstance(config, builder.build());
@@ -129,14 +132,16 @@ public class DockerService {
         BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
         buildImageCmd.exec(buildImageResultCallback);
         String imageId = buildImageResultCallback.awaitImageId();
-        LOG.trace(
-                "Image " + imageId + " build log: " + System.lineSeparator()
-                        + String.join(System.lineSeparator(),
-                                buildImageResultCallback.getBuildImageSteps()));
+        // Log build steps only if trace is enabled to avoid unnecessary string concatenation
+        if (LOG.isTraceEnabled()) {
+            String buildLog = String.join(System.lineSeparator(), buildImageResultCallback.getBuildImageSteps());
+            LOG.trace("Image {} build log: {}{}", imageId, System.lineSeparator(), buildLog);
+        }
 
         return imageId;
     }
 
+    @SuppressWarnings("resource")
     public String createContainer(String imageName, String containerName, String user) {
         CreateContainerResponse createContainerResponse = dockerClient
                 .createContainerCmd(imageName)
@@ -189,7 +194,7 @@ public class DockerService {
         return resultCallback;
     }
 
-    public void copyToContainer(String containerId, Path localPath, String remotePath) throws IOException {
+    public void copyToContainer(String containerId, Path localPath, String remotePath) {
         dockerClient
                 .copyArchiveToContainerCmd(containerId)
                 .withHostResource(localPath.toString())
@@ -205,34 +210,41 @@ public class DockerService {
         return new TarArchiveInputStream(is);
     }
 
-    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) throws Exception {
-        // Convert PEM strings to byte arrays
-        byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
-        byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
-        byte[] keyBytes = decodePemPrivateKey(clientKey);
+    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey,
+            String keyStorePassword) {
+        try {
+            // Convert PEM strings to byte arrays
+            byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
+            byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
+            byte[] keyBytes = decodePemPrivateKey(clientKey);
 
-        // Load CA Certificate
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
+            // Load CA Certificate
+            CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+            Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
 
-        // Load Client Certificate
-        Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
+            // Load Client Certificate
+            Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
 
-        // Load Private Key
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
+            // Load Private Key
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
 
-        // Create a KeyStore
-        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-        keyStore.load(null, null);
-        keyStore.setCertificateEntry("ca", caCertificate);
-        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
+            // Create a KeyStore
+            KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keyStore.load(null, null);
+            keyStore.setCertificateEntry("ca", caCertificate);
+            // Use configured keystore password
+            keyStore.setKeyEntry("client", privateKey,
+                    keyStorePassword.toCharArray(), new Certificate[]{ clientCertificate });
 
-        // Create an SSLContext
-        return SSLContextBuilder.create()
-                .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, "changeit".toCharArray())
-                .build();
+            // Create an SSLContext
+            return SSLContextBuilder.create()
+                    .loadTrustMaterial(keyStore, null)
+                    .loadKeyMaterial(keyStore, keyStorePassword.toCharArray())
+                    .build();
+        } catch (GeneralSecurityException | IOException e) {
+            throw new DockerServiceException("Failed to create SSL context", e);
+        }
     }
 
     private static byte[] decodePemPrivateKey(String pem) {
@@ -283,15 +295,17 @@ public class DockerService {
         public void onNext(Frame frame) {
 
             Level logLevel = switch (frame.getStreamType()) {
-                case STDOUT:
-                case RAW:
+                case STDOUT, RAW:
                     outputFrames.add(frameToString(frame));
                     yield Level.TRACE;
                 case STDERR:
                     errorFrames.add(frameToString(frame));
                     yield Level.ERROR;
                 default:
-                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
+                    // Throw a dedicated exception for unexpected stream types
+                    throw new it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException(
+                        "Unknown stream type: " + frame.getStreamType()
+                    );
             };
 
             if (log) {
@@ -301,7 +315,7 @@ public class DockerService {
 
         private String frameToString(Frame frame) {
             return new String(frame.getPayload(), StandardCharsets.UTF_8);
-        };
+        }
 
         public String getStdOut() {
             return String.join("", outputFrames);
