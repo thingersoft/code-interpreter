@@ -29,12 +29,14 @@ public class FileService {
     private final AppConfig appConfig;
 
     // Self-injection for proper transactional behavior on internal calls
-    @org.springframework.beans.factory.annotation.Autowired
-    private FileService self;
+    private final FileService self;
 
-    public FileService(StoredFileRepository storedFileRepository, AppConfig appConfig) {
+    public FileService(StoredFileRepository storedFileRepository,
+                       AppConfig appConfig,
+                       @org.springframework.context.annotation.Lazy FileService self) {
         this.storedFileRepository = storedFileRepository;
         this.appConfig = appConfig;
+        this.self = self;
     }
 
     @Transactional

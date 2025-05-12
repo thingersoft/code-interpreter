@@ -74,9 +74,9 @@ public class CodeService {
         this.applicationContext = applicationContext;
 
         this.remoteIoPath = appConfig.getRemoteIoPath();
-        // Construct I/O paths for container execution
-        this.remoteInputPath = this.remoteIoPath + "/" + INPUT_FOLDER_NAME;
-        this.remoteOutputPath = this.remoteIoPath + "/output";
+        // Construct I/O paths for container execution using Path API for portability
+        this.remoteInputPath = Path.of(this.remoteIoPath, INPUT_FOLDER_NAME).toString();
+        this.remoteOutputPath = Path.of(this.remoteIoPath, "output").toString();
         this.localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
         this.cdToInputCommand = "cd " + this.remoteInputPath;
     }
