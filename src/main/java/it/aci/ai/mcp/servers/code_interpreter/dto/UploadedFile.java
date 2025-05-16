@@ -1,5 +1,8 @@
 package it.aci.ai.mcp.servers.code_interpreter.dto;
 
+import java.util.Objects;
+import java.util.Arrays;
+    
 public record UploadedFile(String name, byte[] content) {
     
     @Override

@@ -1,6 +1,8 @@
 package it.aci.ai.mcp.servers.code_interpreter.dto;
 
 import it.aci.ai.mcp.servers.code_interpreter.enums.Language;
+import java.util.Objects;
+import java.util.Arrays;
 
 public record ExecuteCodeRequest(Language language, String code, String sessionId, Dependency... dependencies) {
     
