@@ -39,7 +39,12 @@ public class FileService {
         Path storagePath = getStoragePath(sessionId, storedFileType);
         try {
             Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
+            // Prevent path traversal by normalizing and validating
+            Path targetPath = storagePath.resolve(relativePath).normalize();
+            if (!targetPath.startsWith(storagePath)) {
+                throw new IllegalArgumentException("Invalid file path: " + relativePath);
+            }
+            Path filePath = Files.write(targetPath, fileContent);
             StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
@@ -84,7 +89,8 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
+            // Avoid logging raw user input directly to prevent log injection
+            LOG.info("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
         }
         return storedFiles;
     }

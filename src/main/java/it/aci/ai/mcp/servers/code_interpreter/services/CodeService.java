@@ -214,7 +214,10 @@ public class CodeService {
 
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
-        } catch (InterruptedException | IOException e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
 
@@ -226,7 +229,10 @@ public class CodeService {
             threadPool.submit(() -> {
                 languages.parallelStream().forEach(consumer);
             }).get();
-        } catch (InterruptedException | ExecutionException e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        } catch (ExecutionException e) {
             throw new RuntimeException(e);
         }
     }
