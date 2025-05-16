@@ -218,7 +218,7 @@ public class ExecuteRequest {
 
   public ExecuteRequest addFilesItem(RequestFile filesItem) {
     if (this.files == null) {
-      this.files = new ArrayList<RequestFile>();
+      this.files = new ArrayList<>();
     }
     this.files.add(filesItem);
     return this;
