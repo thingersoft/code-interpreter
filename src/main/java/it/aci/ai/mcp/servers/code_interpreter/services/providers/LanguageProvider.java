@@ -16,7 +16,8 @@ public abstract class LanguageProvider {
 
     public static final String IMAGE_USER = "intepreter";
 
-    protected final ChatModel chatModel;
+    @Autowired
+    protected ChatModel chatModel;
 
     public abstract String getFromImage();
 
