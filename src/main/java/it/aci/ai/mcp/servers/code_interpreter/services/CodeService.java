@@ -137,7 +137,8 @@ public class CodeService {
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeServiceException(
+                        "Failed to initialize container for language " + language, e);
             }
         });
 
