@@ -84,7 +84,6 @@ public class FileService {
     }
 
     @Transactional
-    @Transactional
     public List<StoredFile> uploadFile(List<UploadedFile> uploadedFiles) {
         String sessionId = AppUtils.generateSessionId();
         List<StoredFile> storedFiles = new ArrayList<>();

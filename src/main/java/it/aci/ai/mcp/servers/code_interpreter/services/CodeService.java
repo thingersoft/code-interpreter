@@ -158,7 +158,7 @@ public class CodeService {
 
         Language language = request.language();
         String sourceCode = request.code();
-        Path workspaceFolder = LOCAL_INPUT_PATH.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
+        Path workspaceFolder = localInputPath.resolve(UUID.randomUUID().toString()).resolve(INPUT_FOLDER_NAME);
         LanguageProvider languageProvider = getLanguageProvider(language);
 
         String sessionId = request.sessionId() == null ? AppUtils.generateSessionId() : request.sessionId();
@@ -187,7 +187,7 @@ public class CodeService {
 
             // prepare execution environment
             List<String> prepareCommands = new ArrayList<>();
-            prepareCommands.add(CD_TO_INPUT_COMMAND);
+            prepareCommands.add(cdToInputCommand);
             prepareCommands.add("rm -rf " + remoteOutputPath + "/*");
             prepareCommands.addAll(languageProvider.getPrepareExecutionCommands(workspaceFolder));
             LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, true,
@@ -247,7 +247,7 @@ public class CodeService {
         List<StoredFile> storedFiles = new ArrayList<>();
 
         // untar files preserving directory structure
-        try (TarArchiveInputStream tais = dockerService.copyArchiveFromContainer(containerId, REMOTE_OUTPUT_PATH)) {
+        try (TarArchiveInputStream tais = dockerService.copyArchiveFromContainer(containerId, remoteOutputPath)) {
             TarArchiveEntry entry;
             String rootDirName = null;
 
