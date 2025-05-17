@@ -176,8 +176,17 @@ public class JavaProvider extends LanguageProvider {
             } catch (Exception ignored) {
                 // FEATURE_SECURE_PROCESSING not supported, continue
             }
-            transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+            // Disable external DTDs and stylesheets to prevent XXE
+            try {
+                transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            } catch (IllegalArgumentException ignored) {
+                // ACCESS_EXTERNAL_DTD not supported, continue
+            }
+            try {
+                transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+            } catch (IllegalArgumentException ignored) {
+                // ACCESS_EXTERNAL_STYLESHEET not supported, continue
+            }
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);
