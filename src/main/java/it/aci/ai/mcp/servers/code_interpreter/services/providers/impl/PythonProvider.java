@@ -15,6 +15,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
 import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvider;
+import org.springframework.ai.chat.model.ChatModel;
 
 @Service
 public class PythonProvider extends LanguageProvider {
