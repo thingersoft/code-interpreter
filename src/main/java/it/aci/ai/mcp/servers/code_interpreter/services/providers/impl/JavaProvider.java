@@ -170,23 +170,8 @@ public class JavaProvider extends LanguageProvider {
                     .appendChild(pluginElement);
 
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
-            // Secure transformer to prevent XXE and disable external entity resolution
-            try {
-                transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            } catch (Exception ignored) {
-                // FEATURE_SECURE_PROCESSING not supported, continue
-            }
-            // Disable external DTDs and stylesheets to prevent XXE
-            try {
-                transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            } catch (IllegalArgumentException ignored) {
-                // ACCESS_EXTERNAL_DTD not supported, continue
-            }
-            try {
-                transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
-            } catch (IllegalArgumentException ignored) {
-                // ACCESS_EXTERNAL_STYLESHEET not supported, continue
-            }
+            // configure transformer for secure processing and disable external entities
+            configureTransformerFactory(transformerFactory);
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);
@@ -205,6 +190,24 @@ public class JavaProvider extends LanguageProvider {
         Element element = doc.createElement(tag);
         element.appendChild(doc.createTextNode(text));
         parent.appendChild(element);
+    }
+    
+    /**
+     * Configures the TransformerFactory for secure processing and disables external DTDs and stylesheets to prevent XXE.
+     */
+    private static void configureTransformerFactory(TransformerFactory factory) {
+        try {
+            factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        } catch (Exception ignored) {
+        }
+        try {
+            factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        } catch (IllegalArgumentException ignored) {
+        }
+        try {
+            factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+        } catch (IllegalArgumentException ignored) {
+        }
     }
 
     protected Set<MavenDependency> inferDependencies(String sourceCode) {
