@@ -226,12 +226,14 @@ public class DockerService {
         KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         keyStore.load(null, null);
         keyStore.setCertificateEntry("ca", caCertificate);
-        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
+        // Use no default hardcoded password
+        keyStore.setKeyEntry("client", privateKey, new char[0], new Certificate[] { clientCertificate });
 
         // Create an SSLContext
+        // Use no default hardcoded password
         return SSLContextBuilder.create()
                 .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, "changeit".toCharArray())
+                .loadKeyMaterial(keyStore, new char[0])
                 .build();
     }
 

@@ -89,10 +89,19 @@ public class JavaProvider extends LanguageProvider {
     /**
      * Generates a pom.xml file with the inferred dependencies.
      */
+    private static final String TAG_GROUP_ID = "groupId";
+    private static final String TAG_ARTIFACT_ID = "artifactId";
+    private static final String TAG_VERSION = "version";
     private static String generatePomXml(Set<MavenDependency> dependencies) {
 
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            // Secure XML parsing to prevent XXE
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.newDocument();
 
@@ -104,18 +113,18 @@ public class JavaProvider extends LanguageProvider {
             doc.appendChild(project);
 
             appendTextElement(doc, project, "modelVersion", "4.0.0");
-            appendTextElement(doc, project, "groupId", "com.example");
-            appendTextElement(doc, project, "artifactId", WRAPPER_PROJECT_ARTIFACT_ID);
-            appendTextElement(doc, project, "version", WRAPPER_PROJECT_VERSION);
+            appendTextElement(doc, project, TAG_GROUP_ID, "com.example");
+            appendTextElement(doc, project, TAG_ARTIFACT_ID, WRAPPER_PROJECT_ARTIFACT_ID);
+            appendTextElement(doc, project, TAG_VERSION, WRAPPER_PROJECT_VERSION);
 
             Element dependenciesElement = doc.createElement("dependencies");
             project.appendChild(dependenciesElement);
 
             for (MavenDependency dep : dependencies) {
                 Element dependency = doc.createElement("dependency");
-                appendTextElement(doc, dependency, "groupId", dep.groupId());
-                appendTextElement(doc, dependency, "artifactId", dep.artifactId());
-                appendTextElement(doc, dependency, "version", dep.version());
+                appendTextElement(doc, dependency, TAG_GROUP_ID, dep.groupId());
+                appendTextElement(doc, dependency, TAG_ARTIFACT_ID, dep.artifactId());
+                appendTextElement(doc, dependency, TAG_VERSION, dep.version());
                 appendTextElement(doc, dependency, "type", dep.type());
                 dependenciesElement.appendChild(dependency);
             }
@@ -143,9 +152,9 @@ public class JavaProvider extends LanguageProvider {
             executionElement.appendChild(configurationElement);
 
             Element pluginElement = doc.createElement("plugin");
-            appendTextElement(doc, pluginElement, "groupId", "org.apache.maven.plugins");
-            appendTextElement(doc, pluginElement, "artifactId", "maven-assembly-plugin");
-            appendTextElement(doc, pluginElement, "version", "3.3.0");
+            appendTextElement(doc, pluginElement, TAG_GROUP_ID, "org.apache.maven.plugins");
+            appendTextElement(doc, pluginElement, TAG_ARTIFACT_ID, "maven-assembly-plugin");
+            appendTextElement(doc, pluginElement, TAG_VERSION, "3.3.0");
             pluginElement
                     .appendChild(doc.createElement("executions"))
                     .appendChild(executionElement);
@@ -156,6 +165,9 @@ public class JavaProvider extends LanguageProvider {
                     .appendChild(pluginElement);
 
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            // Secure transformer to prevent XXE
+            transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);

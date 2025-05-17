@@ -49,15 +49,13 @@ public class CodeService {
 
     private static final String INPUT_FOLDER_NAME = "input";
 
-    private static Path LOCAL_INPUT_PATH;
+    private static Path localInputPath;
+    private static String remoteIoPath;
+    private static String remoteInputPath;
+    private static String remoteOutputPath;
+    private static String cdToInputCommand;
 
-    private static String REMOTE_IO_PATH;
-    private static String REMOTE_INPUT_PATH;
-    private static String REMOTE_OUTPUT_PATH;
-
-    private static String CD_TO_INPUT_COMMAND;
-
-    private Map<Language, String> languageContainerIdMap = new HashMap<>();
+    private final java.util.EnumMap<Language, String> languageContainerIdMap = new java.util.EnumMap<>(Language.class);
 
     private final DockerService dockerService;
     private final FileService fileService;
@@ -71,12 +69,11 @@ public class CodeService {
         this.buildProperties = buildProperties;
         this.applicationContext = applicationContext;
 
-        REMOTE_IO_PATH = appConfig.getRemoteIoPath();
-        REMOTE_INPUT_PATH = REMOTE_IO_PATH + "/" + INPUT_FOLDER_NAME;
-        LOCAL_INPUT_PATH = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
-        REMOTE_OUTPUT_PATH = REMOTE_IO_PATH + "/output";
-
-        CD_TO_INPUT_COMMAND = "cd " + REMOTE_INPUT_PATH;
+        remoteIoPath = appConfig.getRemoteIoPath();
+        remoteInputPath = Path.of(remoteIoPath, INPUT_FOLDER_NAME).toString();
+        localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
+        remoteOutputPath = Path.of(remoteIoPath, "output").toString();
+        cdToInputCommand = "cd " + remoteInputPath;
     }
 
     private LanguageProvider getLanguageProvider(Language language) {
@@ -118,8 +115,8 @@ public class CodeService {
                         Map<String, String> buildArgs = new HashMap<>();
                         buildArgs.put("FROM_IMAGE", languageProvider.getFromImage());
                         buildArgs.put("USER", LanguageProvider.IMAGE_USER);
-                        buildArgs.put("INPUT_PATH", REMOTE_INPUT_PATH);
-                        buildArgs.put("OUTPUT_PATH", REMOTE_OUTPUT_PATH);
+                        buildArgs.put("INPUT_PATH", remoteInputPath);
+                        buildArgs.put("OUTPUT_PATH", remoteOutputPath);
                         buildArgs.put("INIT_COMMAND", String.join(" && ", languageProvider.getImageInitCommands()));
 
                         String imageId = dockerService.buildImage(tmpFile, imageName, buildArgs);
@@ -186,12 +183,12 @@ public class CodeService {
             languageProvider.prepareWorkspace(workspaceFolder, sourceCode);
 
             // copy local input folder to container
-            dockerService.copyToContainer(containerId, workspaceFolder, REMOTE_IO_PATH);
+            dockerService.copyToContainer(containerId, workspaceFolder, remoteIoPath);
 
             // prepare execution environment
             List<String> prepareCommands = new ArrayList<>();
             prepareCommands.add(CD_TO_INPUT_COMMAND);
-            prepareCommands.add("rm -rf " + REMOTE_OUTPUT_PATH + "/*");
+            prepareCommands.add("rm -rf " + remoteOutputPath + "/*");
             prepareCommands.addAll(languageProvider.getPrepareExecutionCommands(workspaceFolder));
             LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, true,
                     language.name());
@@ -203,7 +200,7 @@ public class CodeService {
 
             // execute code and collect output
             List<String> commands = new ArrayList<>();
-            commands.add(CD_TO_INPUT_COMMAND);
+            commands.add(cdToInputCommand);
             commands.addAll(languageProvider.getExecutionCommands(workspaceFolder));
             LoggingResultCallback result = dockerService.runInContainer(containerId, commands, false, null);
 
@@ -214,7 +211,10 @@ public class CodeService {
 
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
-        } catch (InterruptedException | IOException e) {
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
 
@@ -226,7 +226,14 @@ public class CodeService {
             threadPool.submit(() -> {
                 languages.parallelStream().forEach(consumer);
             }).get();
-        } catch (InterruptedException | ExecutionException e) {
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e.getCause());
+            }
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
     }

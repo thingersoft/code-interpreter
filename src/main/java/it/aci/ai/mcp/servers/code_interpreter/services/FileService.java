@@ -32,15 +32,21 @@ public class FileService {
         this.appConfig = appConfig;
     }
 
-    @Transactional
+    // Remove transactional annotation to allow repository tx in calling methods
     public StoredFile storeFile(String relativePath, byte[] fileContent, String sessionId,
             StoredFileType storedFileType) {
+        // Prevent path traversal
+        Path rel = Path.of(relativePath).normalize();
+        if (rel.isAbsolute() || rel.startsWith("..")) {
+            throw new IllegalArgumentException("Invalid file path: " + relativePath);
+        }
         String fileId = AppUtils.generateFileId();
-        Path storagePath = getStoragePath(sessionId, storedFileType);
+        Path storageDir = getStoragePath(sessionId, storedFileType);
         try {
-            Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
-            StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
+            Path filePath = storageDir.resolve(rel);
+            Files.createDirectories(filePath.getParent());
+            Files.write(filePath, fileContent);
+            StoredFile storedFile = new StoredFile(fileId, sessionId, rel.toString(), Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
         } catch (IOException e) {
@@ -62,7 +68,9 @@ public class FileService {
             throw new RuntimeException(e);
         }
         storedFileRepository.delete(storedFile);
-        LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Deleted file - session id: {} - file id: {}", storedFile.sessionId(), fileId);
+        }
     }
 
     public byte[] downloadFile(String fileId) {
@@ -76,6 +84,7 @@ public class FileService {
     }
 
     @Transactional
+    @Transactional
     public List<StoredFile> uploadFile(List<UploadedFile> uploadedFiles) {
         String sessionId = AppUtils.generateSessionId();
         List<StoredFile> storedFiles = new ArrayList<>();
@@ -84,7 +93,9 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
+            if (LOG.isInfoEnabled()) {
+                LOG.info("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
+            }
         }
         return storedFiles;
     }
