@@ -21,7 +21,7 @@ public abstract class LanguageProvider {
     /**
      * Constructor injection for ChatModel
      */
-    public LanguageProvider(ChatModel chatModel) {
+    protected LanguageProvider(ChatModel chatModel) {
         this.chatModel = chatModel;
     }
 

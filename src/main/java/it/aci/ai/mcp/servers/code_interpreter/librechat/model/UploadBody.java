@@ -58,7 +58,7 @@ public class UploadBody {
 
   public UploadBody addFilesItem(Resource filesItem) {
     if (this.files == null) {
-      this.files = new ArrayList<Resource>();
+      this.files = new ArrayList<>();
     }
     this.files.add(filesItem);
     return this;

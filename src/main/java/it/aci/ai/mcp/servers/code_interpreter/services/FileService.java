@@ -7,8 +7,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +20,6 @@ import it.aci.ai.mcp.servers.code_interpreter.utils.AppUtils;
 @Service
 public class FileService {
 
-    private static final Logger LOG = LoggerFactory.getLogger(FileService.class);
 
     private final StoredFileRepository storedFileRepository;
     private final AppConfig appConfig;

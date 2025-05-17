@@ -33,7 +33,6 @@ import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.BuildImageCmd;
 import com.github.dockerjava.api.command.BuildImageResultCallback;
-import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.BuildResponseItem;
@@ -185,7 +184,7 @@ public class DockerService {
         return resultCallback;
     }
 
-    public void copyToContainer(String containerId, Path localPath, String remotePath) throws IOException {
+    public void copyToContainer(String containerId, Path localPath, String remotePath) {
         dockerClient
                 .copyArchiveToContainerCmd(containerId)
                 .withHostResource(localPath.toString())
