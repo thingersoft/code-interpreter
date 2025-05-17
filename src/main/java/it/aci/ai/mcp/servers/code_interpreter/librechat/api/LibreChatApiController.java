@@ -75,7 +75,8 @@ public class LibreChatApiController {
                             try {
                                 return new UploadedFile(file.getOriginalFilename(), file.getBytes());
                             } catch (IOException e) {
-                                throw new RuntimeException(e);
+                                throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileStorageException(
+                                        "Failed to read uploaded file '" + file.getOriginalFilename() + "'", e);
                             }
                         })
                         .toList());

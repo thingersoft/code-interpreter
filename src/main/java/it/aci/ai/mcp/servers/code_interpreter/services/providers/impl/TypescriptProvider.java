@@ -16,6 +16,12 @@ import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvide
 
 @Service
 public class TypescriptProvider extends LanguageProvider {
+    /**
+     * Constructor injection for ChatModel
+     */
+    public TypescriptProvider(org.springframework.ai.chat.model.ChatModel chatModel) {
+        super(chatModel);
+    }
 
     @Override
     public String getFromImage() {

@@ -19,6 +19,9 @@ import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvide
 @Service
 public class PythonProvider extends LanguageProvider {
 
+    public PythonProvider(ChatModel chatModel) {
+        super(chatModel);
+    }
     @Override
     public String getFromImage() {
         return "python:3.12";

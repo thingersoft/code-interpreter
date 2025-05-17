@@ -70,10 +70,7 @@ public class FileService {
                     "Failed to delete file '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
-        // deletion acknowledged
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Deleted file with id {}", fileId);
-        }
+        // deletion acknowledged (logging removed to avoid potential info leakage)
     }
 
     public byte[] downloadFile(String fileId) {
@@ -96,9 +93,7 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Uploaded file with id {}", storedFile.id());
-            }
+            // upload acknowledged (logging removed to avoid potential info leakage)
         }
         return storedFiles;
     }

@@ -71,15 +71,12 @@ public class DockerService {
         ApacheDockerHttpClient.Builder builder = new ApacheDockerHttpClient.Builder()
                 .dockerHost(config.getDockerHost());
         if (dockerConfig.isTls()) {
-            try {
-                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
-                        dockerConfig.getClientKey());
-                SSLConfig sslConfig = () -> sslContext;
-                builder = builder.sslConfig(sslConfig);
-        } catch (Exception e) {
-                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
-                        "Failed to initialize Docker TLS context", e);
-            }
+            SSLContext sslContext = createSSLContext(
+                    dockerConfig.getCaCert(),
+                    dockerConfig.getClientCert(),
+                    dockerConfig.getClientKey());
+            SSLConfig sslConfig = () -> sslContext;
+            builder = builder.sslConfig(sslConfig);
         }
         dockerClient = DockerClientImpl.getInstance(config, builder.build());
     }
@@ -135,14 +132,16 @@ public class DockerService {
     }
 
     public String createContainer(String imageName, String containerName, String user) {
-        CreateContainerResponse createContainerResponse = dockerClient
-                .createContainerCmd(imageName)
-                .withName(containerName)
-                .withAttachStdout(true)
-                .withAttachStderr(true)
-                .withUser(user)
-                .exec();
-        return createContainerResponse.getId();
+        try (com.github.dockerjava.api.command.CreateContainerCmd cmd = dockerClient.createContainerCmd(imageName)) {
+            cmd.withName(containerName)
+               .withAttachStdout(true)
+               .withAttachStderr(true)
+               .withUser(user);
+            com.github.dockerjava.api.command.CreateContainerResponse response = cmd.exec();
+            return response.getId();
+        } catch (Exception e) {
+            throw new DockerServiceException("Failed to create Docker container", e);
+        }
     }
 
     public LoggingResultCallback startContainer(String containerId, String logTag) {
@@ -202,36 +201,31 @@ public class DockerService {
         return new TarArchiveInputStream(is);
     }
 
-    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) throws Exception {
-        // Convert PEM strings to byte arrays
-        byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
-        byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
-        byte[] keyBytes = decodePemPrivateKey(clientKey);
+    private static SSLContext createSSLContext(String caCert, String clientCert, String clientKey) {
+        try {
+            byte[] caBytes = caCert.getBytes(StandardCharsets.UTF_8);
+            byte[] certBytes = clientCert.getBytes(StandardCharsets.UTF_8);
+            byte[] keyBytes = decodePemPrivateKey(clientKey);
 
-        // Load CA Certificate
-        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
-        Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
+            CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+            Certificate caCertificate = certFactory.generateCertificate(new ByteArrayInputStream(caBytes));
+            Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
 
-        // Load Client Certificate
-        Certificate clientCertificate = certFactory.generateCertificate(new ByteArrayInputStream(certBytes));
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
 
-        // Load Private Key
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
+            KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keyStore.load(null, null);
+            keyStore.setCertificateEntry("ca", caCertificate);
+            keyStore.setKeyEntry("client", privateKey, new char[0], new Certificate[] { clientCertificate });
 
-        // Create a KeyStore
-        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
-        keyStore.load(null, null);
-        keyStore.setCertificateEntry("ca", caCertificate);
-        // Use no default hardcoded password
-        keyStore.setKeyEntry("client", privateKey, new char[0], new Certificate[] { clientCertificate });
-
-        // Create an SSLContext
-        // Use no default hardcoded password
-        return SSLContextBuilder.create()
-                .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, new char[0])
-                .build();
+            return SSLContextBuilder.create()
+                    .loadTrustMaterial(keyStore, null)
+                    .loadKeyMaterial(keyStore, new char[0])
+                    .build();
+        } catch (Exception e) {
+            throw new DockerServiceException("Failed to create Docker TLS SSLContext", e);
+        }
     }
 
     private static byte[] decodePemPrivateKey(String pem) {

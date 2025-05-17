@@ -31,6 +31,12 @@ import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvide
 
 @Service
 public class JavaProvider extends LanguageProvider {
+    /**
+     * Constructor injection for ChatModel
+     */
+    public JavaProvider(org.springframework.ai.chat.model.ChatModel chatModel) {
+        super(chatModel);
+    }
 
     private static final String MAIN_CLASS_NAME = "Main";
     private static final String WRAPPER_PROJECT_VERSION = "1.0-SNAPSHOT";
