@@ -71,8 +71,8 @@ public class FileService {
         }
         storedFileRepository.delete(storedFile);
         // deletion acknowledged
-        if (LOG.isInfoEnabled()) {
-            LOG.info("Deleted file with id {}", fileId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Deleted file with id {}", fileId);
         }
     }
 
@@ -96,8 +96,8 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            if (LOG.isInfoEnabled()) {
-                LOG.info("Uploaded file with id {}", storedFile.id());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Uploaded file with id {}", storedFile.id());
             }
         }
         return storedFiles;

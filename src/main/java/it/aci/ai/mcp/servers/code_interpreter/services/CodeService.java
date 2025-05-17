@@ -49,11 +49,11 @@ public class CodeService {
 
     private static final String INPUT_FOLDER_NAME = "input";
 
-    private static Path localInputPath;
-    private static String remoteIoPath;
-    private static String remoteInputPath;
-    private static String remoteOutputPath;
-    private static String cdToInputCommand;
+    private final Path localInputPath;
+    private final String remoteIoPath;
+    private final String remoteInputPath;
+    private final String remoteOutputPath;
+    private final String cdToInputCommand;
 
     private final java.util.EnumMap<Language, String> languageContainerIdMap = new java.util.EnumMap<>(Language.class);
 
@@ -68,12 +68,11 @@ public class CodeService {
         this.dockerService = dockerService;
         this.buildProperties = buildProperties;
         this.applicationContext = applicationContext;
-
-        remoteIoPath = appConfig.getRemoteIoPath();
-        remoteInputPath = Path.of(remoteIoPath, INPUT_FOLDER_NAME).toString();
-        localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
-        remoteOutputPath = Path.of(remoteIoPath, "output").toString();
-        cdToInputCommand = "cd " + remoteInputPath;
+        this.remoteIoPath = appConfig.getRemoteIoPath();
+        this.remoteInputPath = Path.of(remoteIoPath, INPUT_FOLDER_NAME).toString();
+        this.localInputPath = Path.of(System.getProperty("java.io.tmpdir")).resolve("code-interpreter");
+        this.remoteOutputPath = Path.of(remoteIoPath, "output").toString();
+        this.cdToInputCommand = "cd " + remoteInputPath;
     }
 
     private LanguageProvider getLanguageProvider(Language language) {
@@ -81,7 +80,7 @@ public class CodeService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
 
         // init containers for each supported language in parallel
         parallellyExecuteForEachLanguage(language -> {
@@ -225,9 +224,7 @@ public class CodeService {
     private void parallellyExecuteForEachLanguage(Consumer<Language> consumer) {
         List<Language> languages = Arrays.asList(Language.values());
         try (ForkJoinPool threadPool = new ForkJoinPool(languages.size())) {
-            threadPool.submit(() -> {
-                languages.parallelStream().forEach(consumer);
-            }).get();
+            threadPool.submit(() -> languages.parallelStream().forEach(consumer)).get();
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof InterruptedException) {

@@ -44,6 +44,7 @@ import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
 import com.github.dockerjava.transport.SSLConfig;
+import it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException;
 
 import it.aci.ai.mcp.servers.code_interpreter.config.DockerConfig;
 import jakarta.annotation.PostConstruct;
@@ -62,7 +63,7 @@ public class DockerService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
         // init docker client
         DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
                 .withDockerHost(dockerConfig.getHost())
@@ -73,12 +74,7 @@ public class DockerService {
             try {
                 SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
                         dockerConfig.getClientKey());
-                SSLConfig sslConfig = new SSLConfig() {
-                    @Override
-                    public SSLContext getSSLContext() {
-                        return sslContext;
-                    }
-                };
+                SSLConfig sslConfig = () -> sslContext;
                 builder = builder.sslConfig(sslConfig);
         } catch (Exception e) {
                 throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
@@ -130,10 +126,10 @@ public class DockerService {
         BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
         buildImageCmd.exec(buildImageResultCallback);
         String imageId = buildImageResultCallback.awaitImageId();
-        LOG.trace(
-                "Image " + imageId + " build log: " + System.lineSeparator()
-                        + String.join(System.lineSeparator(),
-                                buildImageResultCallback.getBuildImageSteps()));
+        if (LOG.isTraceEnabled()) {
+            String joined = String.join(System.lineSeparator(), buildImageResultCallback.getBuildImageSteps());
+            LOG.trace("Image {} build log:{}{}", imageId, System.lineSeparator(), joined);
+        }
 
         return imageId;
     }
@@ -286,15 +282,15 @@ public class DockerService {
         public void onNext(Frame frame) {
 
             Level logLevel = switch (frame.getStreamType()) {
-                case STDOUT:
-                case RAW:
+                case STDOUT, RAW -> {
                     outputFrames.add(frameToString(frame));
                     yield Level.TRACE;
-                case STDERR:
+                }
+                case STDERR -> {
                     errorFrames.add(frameToString(frame));
                     yield Level.ERROR;
-                default:
-                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
+                }
+                default -> throw new DockerServiceException("Unknown stream type: " + frame.getStreamType());
             };
 
             if (log) {
@@ -303,8 +299,8 @@ public class DockerService {
         }
 
         private String frameToString(Frame frame) {
-            return new String(frame.getPayload(), StandardCharsets.UTF_8);
-        };
+        return new String(frame.getPayload(), StandardCharsets.UTF_8);
+        }
 
         public String getStdOut() {
             return String.join("", outputFrames);
