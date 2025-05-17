@@ -50,7 +50,8 @@ public class FileService {
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileStorageException(
+                    "Failed to store file '" + relativePath + "' for session '" + sessionId + "'", e);
         }
     }
 
@@ -65,11 +66,13 @@ public class FileService {
         try {
             Files.delete(getFilePath(storedFile));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileStorageException(
+                    "Failed to delete file '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
+        // deletion acknowledged
         if (LOG.isInfoEnabled()) {
-            LOG.info("Deleted file - session id: {} - file id: {}", storedFile.sessionId(), fileId);
+            LOG.info("Deleted file with id {}", fileId);
         }
     }
 
@@ -79,7 +82,8 @@ public class FileService {
         try {
             return Files.readAllBytes(filePath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileStorageException(
+                    "Failed to download file '" + fileId + "'", e);
         }
     }
 
@@ -93,7 +97,7 @@ public class FileService {
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
             if (LOG.isInfoEnabled()) {
-                LOG.info("Uploaded file - session id: {} - file id: {}", storedFile.sessionId(), storedFile.id());
+                LOG.info("Uploaded file with id {}", storedFile.id());
             }
         }
         return storedFiles;

@@ -29,7 +29,7 @@ public abstract class LanguageProvider {
 
     public void prepareWorkspace(Path workspace, String sourceCode) throws IOException {
         Files.writeString(workspace.resolve(getSourceFileName()), sourceCode, StandardOpenOption.CREATE);
-    };
+    }
 
     public abstract List<String> getPrepareExecutionCommands(Path workspace);
 

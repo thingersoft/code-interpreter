@@ -212,10 +212,12 @@ public class CodeService {
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "I/O error during code execution session '" + sessionId + "'", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "Execution interrupted for session '" + sessionId + "'", e);
         }
 
     }
@@ -227,14 +229,18 @@ public class CodeService {
                 languages.parallelStream().forEach(consumer);
             }).get();
         } catch (ExecutionException e) {
-            if (e.getCause() instanceof InterruptedException) {
+            Throwable cause = e.getCause();
+            if (cause instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException(e.getCause());
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                        "Parallel execution interrupted", cause);
             }
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "Error during parallel execution", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "Parallel execution interrupted", e);
         }
     }
 
@@ -259,10 +265,16 @@ public class CodeService {
                     continue;
                 }
 
-                String entryName = entry.getName();
-                if (rootDirName != null && entryName.startsWith(rootDirName + "/")) {
-                    entryName = entryName.substring(rootDirName.length() + 1); // Remove root dir prefix
+                // sanitize entry name to prevent path traversal
+                String rawName = entry.getName();
+                if (rootDirName != null && rawName.startsWith(rootDirName + "/")) {
+                    rawName = rawName.substring(rootDirName.length() + 1);
                 }
+                java.nio.file.Path entryPath = java.nio.file.Path.of(rawName).normalize();
+                if (entryPath.isAbsolute() || entryPath.startsWith("..")) {
+                    throw new IllegalArgumentException("Invalid archive entry path: " + rawName);
+                }
+                String entryName = entryPath.toString();
 
                 // write file to file system and database
                 byte[] fileContent = tais.readNBytes((int) entry.getSize());

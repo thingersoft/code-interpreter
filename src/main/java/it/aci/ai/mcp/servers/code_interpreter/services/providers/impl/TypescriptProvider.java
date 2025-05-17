@@ -37,7 +37,8 @@ public class TypescriptProvider extends LanguageProvider {
                 prepareExecutionCommands.add("npm install --no-warnings " + String.join(" ", dependencies));
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "Failed to prepare dependencies for Typescript code", e);
         }
         return prepareExecutionCommands;
     }

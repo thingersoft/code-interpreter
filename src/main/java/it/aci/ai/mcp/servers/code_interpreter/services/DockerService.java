@@ -80,8 +80,9 @@ public class DockerService {
                     }
                 };
                 builder = builder.sslConfig(sslConfig);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+        } catch (Exception e) {
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                        "Failed to initialize Docker TLS context", e);
             }
         }
         dockerClient = DockerClientImpl.getInstance(config, builder.build());

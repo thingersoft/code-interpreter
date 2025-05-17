@@ -59,7 +59,7 @@ public class JavaProvider extends LanguageProvider {
         if (m.find()) {
             sourceCode = m.replaceFirst("$1" + MAIN_CLASS_NAME + "$3");
         } else {
-            throw new IllegalArgumentException("Unable to identify main class in cource code");
+            throw new IllegalArgumentException("Unable to identify main class in source code");
         }
 
         // infer external dependencies
@@ -75,9 +75,8 @@ public class JavaProvider extends LanguageProvider {
 
     @Override
     public List<String> getPrepareExecutionCommands(Path workspace) {
-        // capture maven errors to stderr
-        // TODO keep stdout as well for tracing purpose (need to switch to bash)
-        return List.of("mvn package | grep '^\\[ERROR\\]' >&2");
+        // build project, capturing both stdout and stderr for tracing
+        return List.of("bash", "-lc", "mvn package");
     }
 
     @Override
@@ -176,7 +175,8 @@ public class JavaProvider extends LanguageProvider {
             transformer.transform(source, result);
             return writer.toString();
         } catch (TransformerException | ParserConfigurationException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "Failed to generate POM XML", e);
         }
 
     }
