@@ -162,7 +162,12 @@ public class JavaProvider extends LanguageProvider {
                     .appendChild(pluginElement);
 
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
-            // Disable external DTDs and stylesheets for transformer to prevent XXE
+            // Enable secure processing and disable external DTDs and stylesheets to prevent XXE
+            try {
+                transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            } catch (Exception e) {
+                // If the implementation does not support this feature, ignore
+            }
             transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
             transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
             Transformer transformer = transformerFactory.newTransformer();
