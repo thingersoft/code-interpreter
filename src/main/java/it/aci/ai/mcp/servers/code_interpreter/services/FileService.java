@@ -39,12 +39,18 @@ public class FileService {
         Path storagePath = getStoragePath(sessionId, storedFileType);
         try {
             Files.createDirectories(storagePath);
-            Path filePath = Files.write(storagePath.resolve(relativePath), fileContent);
+            // prevent path traversal: normalize and ensure within storagePath
+            Path target = storagePath.resolve(relativePath).normalize();
+            if (!target.startsWith(storagePath)) {
+                throw new IllegalArgumentException("Invalid relative path: " + relativePath);
+            }
+            Path filePath = Files.write(target, fileContent);
             StoredFile storedFile = new StoredFile(fileId, sessionId, relativePath, Instant.now(),
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileServiceException(
+                    "Error storing file '" + relativePath + "' for session '" + sessionId + "'", e);
         }
     }
 
@@ -59,10 +65,14 @@ public class FileService {
         try {
             Files.delete(getFilePath(storedFile));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileServiceException(
+                    "Failed to delete file with id '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
-        LOG.info("Deleted file - session id: " + storedFile.sessionId() + " - file id: " + fileId);
+        // avoid log injection by sanitizing session id and file id
+        String safeSessionId = storedFile.sessionId().replaceAll("[\\r\\n]", "");
+        String safeFileId = fileId.replaceAll("[\\r\\n]", "");
+        LOG.info("Deleted file - session id: {} - file id: {}", safeSessionId, safeFileId);
     }
 
     public byte[] downloadFile(String fileId) {
@@ -71,7 +81,8 @@ public class FileService {
         try {
             return Files.readAllBytes(filePath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileServiceException(
+                    "Failed to read file with id '" + fileId + "'", e);
         }
     }
 
@@ -84,7 +95,10 @@ public class FileService {
             byte[] fileContent = uploadedFile.content();
             StoredFile storedFile = storeFile(filename, fileContent, sessionId, StoredFileType.INPUT);
             storedFiles.add(storedFile);
-            LOG.info("Uploaded file - session id: " + storedFile.sessionId() + " - file id: " + storedFile.id());
+            // avoid log injection by sanitizing file id and session id
+            String safeSessionId = storedFile.sessionId().replaceAll("[\\r\\n]", "");
+            String safeFileId = storedFile.id().replaceAll("[\\r\\n]", "");
+            LOG.info("Uploaded file - session id: {} - file id: {}", safeSessionId, safeFileId);
         }
         return storedFiles;
     }

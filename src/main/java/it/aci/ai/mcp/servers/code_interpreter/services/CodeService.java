@@ -84,10 +84,11 @@ public class CodeService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
 
-        // init containers for each supported language in parallel
-        parallellyExecuteForEachLanguage(language -> {
+        try {
+            // init containers for each supported language in parallel
+            parallellyExecuteForEachLanguage(language -> {
 
             LanguageProvider languageProvider = getLanguageProvider(language);
 
@@ -141,9 +142,14 @@ public class CodeService {
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeServiceException(
+                    "Failed to initialize container for language " + language, e);
             }
-        });
+            });
+        } catch (Exception e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeServiceException(
+                "Error during CodeService initialization", e);
+        }
 
     }
 
@@ -214,8 +220,11 @@ public class CodeService {
 
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
-        } catch (InterruptedException | IOException e) {
-            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("Execution interrupted", e);
+        } catch (IOException e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("I/O error during execution", e);
         }
 
     }
@@ -226,8 +235,11 @@ public class CodeService {
             threadPool.submit(() -> {
                 languages.parallelStream().forEach(consumer);
             }).get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("Parallel execution interrupted", e);
+        } catch (ExecutionException e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("Error during parallel execution", e);
         }
     }
 

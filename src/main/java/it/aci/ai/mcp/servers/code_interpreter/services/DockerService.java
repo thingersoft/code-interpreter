@@ -62,29 +62,37 @@ public class DockerService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
-        // init docker client
-        DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                .withDockerHost(dockerConfig.getHost())
-                .build();
-        ApacheDockerHttpClient.Builder builder = new ApacheDockerHttpClient.Builder()
-                .dockerHost(config.getDockerHost());
-        if (dockerConfig.isTls()) {
-            try {
-                SSLContext sslContext = createSSLContext(dockerConfig.getCaCert(), dockerConfig.getClientCert(),
-                        dockerConfig.getClientKey());
-                SSLConfig sslConfig = new SSLConfig() {
-                    @Override
-                    public SSLContext getSSLContext() {
-                        return sslContext;
-                    }
-                };
-                builder = builder.sslConfig(sslConfig);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
+    private void init() {
+        try {
+            // init docker client
+            DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
+                    .withDockerHost(dockerConfig.getHost())
+                    .build();
+            ApacheDockerHttpClient.Builder builder = new ApacheDockerHttpClient.Builder()
+                    .dockerHost(config.getDockerHost());
+            if (dockerConfig.isTls()) {
+                try {
+                    SSLContext sslContext = createSSLContext(
+                            dockerConfig.getCaCert(),
+                            dockerConfig.getClientCert(),
+                            dockerConfig.getClientKey());
+                    SSLConfig sslConfig = new SSLConfig() {
+                        @Override
+                        public SSLContext getSSLContext() {
+                            return sslContext;
+                        }
+                    };
+                    builder = builder.sslConfig(sslConfig);
+                } catch (Exception e) {
+                    throw new it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException(
+                            "Failed to initialize SSL context for Docker client", e);
+                }
             }
+            dockerClient = DockerClientImpl.getInstance(config, builder.build());
+        } catch (Exception e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException(
+                    "Failed to initialize Docker client", e);
         }
-        dockerClient = DockerClientImpl.getInstance(config, builder.build());
     }
 
     public void cleanContainer(String containerId) {
@@ -129,10 +137,10 @@ public class DockerService {
         BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
         buildImageCmd.exec(buildImageResultCallback);
         String imageId = buildImageResultCallback.awaitImageId();
-        LOG.trace(
-                "Image " + imageId + " build log: " + System.lineSeparator()
-                        + String.join(System.lineSeparator(),
-                                buildImageResultCallback.getBuildImageSteps()));
+        LOG.trace("Image {} build log:{}{}",
+                imageName,
+                System.lineSeparator(),
+                String.join(System.lineSeparator(), buildImageResultCallback.getBuildImageSteps()));
 
         return imageId;
     }
@@ -226,12 +234,14 @@ public class DockerService {
         KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         keyStore.load(null, null);
         keyStore.setCertificateEntry("ca", caCertificate);
-        keyStore.setKeyEntry("client", privateKey, "changeit".toCharArray(), new Certificate[] { clientCertificate });
+        // Use empty password instead of hardcoded default
+        char[] keyPassword = new char[0];
+        keyStore.setKeyEntry("client", privateKey, keyPassword, new Certificate[] { clientCertificate });
 
         // Create an SSLContext
         return SSLContextBuilder.create()
                 .loadTrustMaterial(keyStore, null)
-                .loadKeyMaterial(keyStore, "changeit".toCharArray())
+                .loadKeyMaterial(keyStore, keyPassword)
                 .build();
     }
 
@@ -291,11 +301,12 @@ public class DockerService {
                     errorFrames.add(frameToString(frame));
                     yield Level.ERROR;
                 default:
-                    throw new RuntimeException("unknown stream type:" + frame.getStreamType());
+                    throw new it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException(
+                            "Unknown stream type: " + frame.getStreamType(), null);
             };
 
             if (log) {
-                LOG.atLevel(logLevel).log(logPrefix + frameToString(frame));
+                    LOG.atLevel(logLevel).log("{}{}", logPrefix, frameToString(frame));
             }
         }
 
