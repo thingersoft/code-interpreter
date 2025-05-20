@@ -81,7 +81,8 @@ public class DockerService {
                 };
                 builder = builder.sslConfig(sslConfig);
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.DockerServiceException(
+                        "Failed to initialize SSL context for Docker client", e);
             }
         }
         dockerClient = DockerClientImpl.getInstance(config, builder.build());

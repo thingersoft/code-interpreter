@@ -69,16 +69,16 @@ public class LibreChatApiController {
     public UploadResponse uploadPost(@RequestPart(value = "entity_id", required = false) String entityId,
             @RequestPart(value = "file", required = true) List<MultipartFile> files) {
 
-        List<StoredFile> storedFiles = fileService.uploadFile(
-                files.stream()
-                        .map(file -> {
-                            try {
-                                return new UploadedFile(file.getOriginalFilename(), file.getBytes());
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        })
-                        .toList());
+        List<it.aci.ai.mcp.servers.code_interpreter.dto.UploadedFile> uploaded = files.stream().map(file -> {
+            try {
+                return new it.aci.ai.mcp.servers.code_interpreter.dto.UploadedFile(
+                        file.getOriginalFilename(), file.getBytes());
+            } catch (IOException e) {
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileProcessingException(
+                        "Failed to process uploaded file: " + file.getOriginalFilename(), e);
+            }
+        }).toList();
+        List<StoredFile> storedFiles = fileService.uploadFile(uploaded);
 
         List<FileObject> fileObjects = storedFiles.stream()
                 .map(LibreChatApiController::toFileObject)

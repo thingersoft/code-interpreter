@@ -214,8 +214,11 @@ public class CodeService {
 
             return new ExecuteCodeResult(result.getStdOut(), result.getStdErr(), sessionId, outputFiles);
 
-        } catch (InterruptedException | IOException e) {
-            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("Execution interrupted", e);
+        } catch (IOException e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("I/O error during execution", e);
         }
 
     }
@@ -226,8 +229,11 @@ public class CodeService {
             threadPool.submit(() -> {
                 languages.parallelStream().forEach(consumer);
             }).get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("Parallel execution interrupted", e);
+        } catch (ExecutionException e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException("Error during parallel execution", e);
         }
     }
 

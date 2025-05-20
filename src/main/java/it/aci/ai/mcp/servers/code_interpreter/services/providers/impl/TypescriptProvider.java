@@ -17,6 +17,12 @@ import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvide
 @Service
 public class TypescriptProvider extends LanguageProvider {
 
+    /**
+     * Constructs a TypescriptProvider with injected ChatModel.
+     */
+    public TypescriptProvider(org.springframework.ai.chat.model.ChatModel chatModel) {
+        super(chatModel);
+    }
     @Override
     public String getFromImage() {
         return "node:23";
@@ -37,7 +43,8 @@ public class TypescriptProvider extends LanguageProvider {
                 prepareExecutionCommands.add("npm install --no-warnings " + String.join(" ", dependencies));
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileProcessingException(
+                    "Failed to read TypeScript source file for dependency inference", e);
         }
         return prepareExecutionCommands;
     }

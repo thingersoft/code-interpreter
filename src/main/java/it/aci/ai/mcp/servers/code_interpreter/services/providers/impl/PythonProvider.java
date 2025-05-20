@@ -19,6 +19,12 @@ import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvide
 @Service
 public class PythonProvider extends LanguageProvider {
 
+    /**
+     * Constructs a PythonProvider with injected ChatModel.
+     */
+    public PythonProvider(org.springframework.ai.chat.model.ChatModel chatModel) {
+        super(chatModel);
+    }
     @Override
     public String getFromImage() {
         return "python:3.12";
