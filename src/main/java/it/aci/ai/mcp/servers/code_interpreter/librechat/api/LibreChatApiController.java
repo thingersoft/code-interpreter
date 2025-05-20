@@ -96,15 +96,11 @@ public class LibreChatApiController {
     public ExecuteResponse executeCode(@RequestBody ExecuteRequest executeRequest) {
 
         Language language = switch (executeRequest.getLang()) {
-            case PY:
-                yield Language.PYTHON;
-            case JAVA:
-                yield Language.JAVA;
-            case JS:
-            case TS:
-                yield Language.TYPESCRIPT;
-            default:
-                throw new IllegalArgumentException("Unsupported language: " + executeRequest.getLang());
+            case PY -> Language.PYTHON;
+            case JAVA -> Language.JAVA;
+            case JS, TS -> Language.TYPESCRIPT;
+            default -> throw new it.aci.ai.mcp.servers.code_interpreter.exception.UnsupportedLanguageException(
+                    "Unsupported language: " + executeRequest.getLang());
         };
 
         String sessionId = null;

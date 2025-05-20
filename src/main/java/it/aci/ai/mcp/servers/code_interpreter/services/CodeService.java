@@ -84,10 +84,11 @@ public class CodeService {
     }
 
     @PostConstruct
-    private void init() throws InterruptedException, IOException {
+    private void init() {
 
-        // init containers for each supported language in parallel
-        parallellyExecuteForEachLanguage(language -> {
+        try {
+            // init containers for each supported language in parallel
+            parallellyExecuteForEachLanguage(language -> {
 
             LanguageProvider languageProvider = getLanguageProvider(language);
 
@@ -141,9 +142,14 @@ public class CodeService {
                 logInfo(language, "Container ready");
 
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeServiceException(
+                    "Failed to initialize container for language " + language, e);
             }
-        });
+            });
+        } catch (Exception e) {
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeServiceException(
+                "Error during CodeService initialization", e);
+        }
 
     }
 

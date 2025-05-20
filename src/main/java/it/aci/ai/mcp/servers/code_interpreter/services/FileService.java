@@ -49,7 +49,8 @@ public class FileService {
                     fileContent.length, Files.probeContentType(filePath), storedFileType);
             return storedFileRepository.save(storedFile);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileServiceException(
+                    "Error storing file '" + relativePath + "' for session '" + sessionId + "'", e);
         }
     }
 
@@ -64,7 +65,8 @@ public class FileService {
         try {
             Files.delete(getFilePath(storedFile));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileServiceException(
+                    "Failed to delete file with id '" + fileId + "'", e);
         }
         storedFileRepository.delete(storedFile);
         // avoid log injection by sanitizing session id and file id
@@ -79,7 +81,8 @@ public class FileService {
         try {
             return Files.readAllBytes(filePath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.FileServiceException(
+                    "Failed to read file with id '" + fileId + "'", e);
         }
     }
 

@@ -87,9 +87,9 @@ public class JavaProvider extends LanguageProvider {
 
     @Override
     public List<String> getPrepareExecutionCommands(Path workspace) {
-        // capture maven errors to stderr
-        // TODO keep stdout as well for tracing purpose (need to switch to bash)
-        return List.of("mvn package | grep '^\\[ERROR\\]' >&2");
+        // keep both stdout and stderr for tracing
+        // use tee to duplicate output to stderr
+        return List.of("mvn package 2>&1 | tee /dev/stderr");
     }
 
     @Override
@@ -186,7 +186,8 @@ public class JavaProvider extends LanguageProvider {
             transformer.transform(source, result);
             return writer.toString();
         } catch (TransformerException | ParserConfigurationException e) {
-            throw new RuntimeException(e);
+            throw new it.aci.ai.mcp.servers.code_interpreter.exception.CodeExecutionException(
+                    "Failed to generate pom.xml", e);
         }
 
     }
