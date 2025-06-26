@@ -19,6 +19,10 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
+import javax.xml.XMLConstants;
+
+import org.xml.sax.SAXNotRecognizedException;
+import org.xml.sax.SAXNotSupportedException;
 
 import org.springframework.ai.azure.openai.AzureOpenAiChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
@@ -92,7 +96,25 @@ public class JavaProvider extends LanguageProvider {
     private static String generatePomXml(Set<MavenDependency> dependencies) {
 
         try {
+            // Configure the XML parser in a secure way.  Even though we only create a
+            // tiny in-memory DOM, static-analysis tools rightfully complain if the
+            // standard factory is used without explicitly disabling DTD processing
+            // because that could make the code vulnerable to XXE in the future if
+            // the implementation detail ever changes (e.g. loading XML coming from
+            // outside the JVM).  Protectively turn off the dangerous features.
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            try {
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+                // Disallow any external DTDs or schemas
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            } catch (ParserConfigurationException | SAXNotRecognizedException | SAXNotSupportedException ignored) {
+                // We ignore the exception and continue – the factory implementation
+                // might not support these features, but if it does we want them
+                // disabled.  In the worst case we fall back to the default secure
+                // behaviour for an internal document we fully control.
+            }
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.newDocument();
 
@@ -156,6 +178,15 @@ public class JavaProvider extends LanguageProvider {
                     .appendChild(pluginElement);
 
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            // Disable external entities when transforming as recommended by the
+            // XML security guidelines.
+            try {
+                transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+            } catch (IllegalArgumentException ignored) {
+                // Attribute not supported by the current JAXP implementation – safe to ignore.
+            }
+
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);
