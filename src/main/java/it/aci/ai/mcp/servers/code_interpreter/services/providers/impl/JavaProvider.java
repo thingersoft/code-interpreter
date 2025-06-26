@@ -21,8 +21,6 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.XMLConstants;
 
-import org.xml.sax.SAXNotRecognizedException;
-import org.xml.sax.SAXNotSupportedException;
 
 import org.springframework.ai.azure.openai.AzureOpenAiChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
@@ -109,7 +107,7 @@ public class JavaProvider extends LanguageProvider {
                 // Disallow any external DTDs or schemas
                 factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
                 factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            } catch (ParserConfigurationException | SAXNotRecognizedException | SAXNotSupportedException ignored) {
+            } catch (ParserConfigurationException ignored) {
                 // We ignore the exception and continue – the factory implementation
                 // might not support these features, but if it does we want them
                 // disabled.  In the worst case we fall back to the default secure
