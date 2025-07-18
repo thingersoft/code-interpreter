@@ -14,8 +14,6 @@ import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.XMLConstants;
-import org.xml.sax.SAXNotRecognizedException;
-import org.xml.sax.SAXNotSupportedException;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
@@ -102,7 +100,7 @@ public class JavaProvider extends LanguageProvider {
                 factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
                 factory.setXIncludeAware(false);
                 factory.setExpandEntityReferences(false);
-            } catch (ParserConfigurationException | SAXNotRecognizedException | SAXNotSupportedException e) {
+            } catch (ParserConfigurationException e) {
                 throw new RuntimeException("Failed to configure XML parser to prevent XXE", e);
             }
             DocumentBuilder builder = factory.newDocumentBuilder();
