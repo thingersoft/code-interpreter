@@ -166,6 +166,9 @@ public class JavaProvider extends LanguageProvider {
             // Prevent external DTDs and stylesheets to mitigate XXE
             transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
             transformerFactory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
+            // Prevent inline DTD declarations and enable secure processing to mitigate XXE
+            transformerFactory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            transformerFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);
