@@ -26,6 +26,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import javax.xml.XMLConstants;
 
 import it.aci.ai.mcp.servers.code_interpreter.services.providers.LanguageProvider;
 
@@ -93,6 +94,9 @@ public class JavaProvider extends LanguageProvider {
 
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            // Prevent XXE attacks by disallowing DOCTYPE declarations and enabling secure processing
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.newDocument();
 
@@ -156,6 +160,9 @@ public class JavaProvider extends LanguageProvider {
                     .appendChild(pluginElement);
 
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
+            // Secure TransformerFactory against XXE by disallowing external DTDs and stylesheets
+            transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            transformerFactory.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("indent", "yes");
             DOMSource source = new DOMSource(doc);
