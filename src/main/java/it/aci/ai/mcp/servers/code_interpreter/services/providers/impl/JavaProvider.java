@@ -20,8 +20,6 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.XMLConstants;
-import org.xml.sax.SAXNotRecognizedException;
-import org.xml.sax.SAXNotSupportedException;
 
 import org.springframework.ai.azure.openai.AzureOpenAiChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
@@ -102,7 +100,7 @@ public class JavaProvider extends LanguageProvider {
                 factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
                 factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
                 factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            } catch (ParserConfigurationException | SAXNotRecognizedException | SAXNotSupportedException e) {
+            } catch (ParserConfigurationException e) {
                 throw new RuntimeException("Failed to configure XML parser securely", e);
             }
             DocumentBuilder builder = factory.newDocumentBuilder();
