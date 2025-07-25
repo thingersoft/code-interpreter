@@ -7,7 +7,8 @@
 
     <appender name="STDOUT" class="ConsoleAppender">
         <encoder class="PatternLayoutEncoder">
-            <pattern>%black(%d{ISO8601} %-36.36logger{36}) %highlight(%-5level) %msg%n%throwable</pattern>
+            <!-- Mask sensitive key-value pairs in log messages -->
+            <pattern>%black(%d{ISO8601} %-36.36logger{36}) %highlight(%-5level) %replace(%msg){'(?i)((?:apikey|apiKey|password|pwd|secret)=)[^,\\s]+' , '$1****'}%n%throwable</pattern>
         </encoder>
     </appender>
 
