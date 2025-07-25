@@ -129,10 +129,8 @@ public class DockerService {
         BuildSandboxImageResultCallback buildImageResultCallback = new BuildSandboxImageResultCallback();
         buildImageCmd.exec(buildImageResultCallback);
         String imageId = buildImageResultCallback.awaitImageId();
-        LOG.trace(
-                "Image " + imageId + " build log: " + System.lineSeparator()
-                        + String.join(System.lineSeparator(),
-                                buildImageResultCallback.getBuildImageSteps()));
+        // Log image build metadata without exposing build logs
+        LOG.debug("Built image {} with id {}", imageName, imageId);
 
         return imageId;
     }
@@ -295,7 +293,7 @@ public class DockerService {
             };
 
             if (log) {
-                LOG.atLevel(logLevel).log(logPrefix + frameToString(frame));
+                // Suppress logging of container output frames to avoid exposing sensitive data
             }
         }
 
