@@ -148,14 +148,18 @@ public class DockerService {
         return createContainerResponse.getId();
     }
 
+    /**
+     * Start the container without logging its internal stdout/stderr to prevent leakage of sensitive data.
+     */
     public LoggingResultCallback startContainer(String containerId, String logTag) {
-        LoggingResultCallback resultCallback = new LoggingResultCallback(true, logTag);
+        // disable logging of container output by default for security
+        LoggingResultCallback resultCallback = new LoggingResultCallback(false, logTag);
 
         dockerClient
                 .startContainerCmd(containerId)
                 .exec();
 
-        // log stdout and stderr
+        // stream container stdout and stderr internally without logging
         dockerClient
                 .logContainerCmd(containerId)
                 .withStdErr(true)
