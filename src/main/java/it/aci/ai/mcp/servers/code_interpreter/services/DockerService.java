@@ -149,7 +149,8 @@ public class DockerService {
     }
 
     public LoggingResultCallback startContainer(String containerId, String logTag) {
-        LoggingResultCallback resultCallback = new LoggingResultCallback(true, logTag);
+        // Disable logging of container startup output to avoid exposing sensitive data
+        LoggingResultCallback resultCallback = new LoggingResultCallback(false, logTag);
 
         dockerClient
                 .startContainerCmd(containerId)
