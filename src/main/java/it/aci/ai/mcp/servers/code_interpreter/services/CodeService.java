@@ -193,7 +193,8 @@ public class CodeService {
             prepareCommands.add(CD_TO_INPUT_COMMAND);
             prepareCommands.add("rm -rf " + REMOTE_OUTPUT_PATH + "/*");
             prepareCommands.addAll(languageProvider.getPrepareExecutionCommands(workspaceFolder));
-            LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, true,
+            // run prepare-phase without logging stdout/stderr to avoid exposing code or errors
+            LoggingResultCallback prepareResult = dockerService.runInContainer(containerId, prepareCommands, false,
                     language.name());
             // return early for errors raised by prepare phase
             if (StringUtils.hasText(prepareResult.getStdErr())) {
