@@ -10,6 +10,10 @@
             <pattern>%black(%d{ISO8601} %-36.36logger{36}) %highlight(%-5level) %msg%n%throwable</pattern>
         </encoder>
     </appender>
+    <!-- suppress potentially sensitive framework logs to avoid leaking details -->
+    <logger name="com.github.dockerjava" level="WARN"/>
+    <logger name="org.apache.http" level="WARN"/>
+    <logger name="org.springframework.web" level="WARN"/>
 
     <root level="info">
         <appender-ref ref="STDOUT" />
