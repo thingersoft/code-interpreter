@@ -7,9 +7,13 @@
 
     <appender name="STDOUT" class="ConsoleAppender">
         <encoder class="PatternLayoutEncoder">
-            <pattern>%black(%d{ISO8601} %-36.36logger{36}) %highlight(%-5level) %msg%n%throwable</pattern>
+            <!-- Removed stack trace printing to avoid exposing sensitive internal details -->
+            <pattern>%black(%d{ISO8601} %-36.36logger{36}) %highlight(%-5level) %msg%n</pattern>
         </encoder>
     </appender>
+    <!-- Reduce auto-configuration logging to WARN to avoid sensitive config details -->
+    <logger name="org.springframework.boot" level="WARN"/>
+    <logger name="org.springframework.context" level="WARN"/>
 
     <root level="info">
         <appender-ref ref="STDOUT" />
